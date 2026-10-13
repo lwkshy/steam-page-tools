@@ -32,12 +32,12 @@ On the signed-in user's own badge pages:
 > [!WARNING]
 > Auto-crafting consumes cards and cannot be undone. The extension asks for confirmation before crafting begins.
 
-<img src="radme-assets\badges.png" alt="Steam badge">
+<img src="readme-assets\badges.png" alt="Steam badge">
 
 ### Friends page
 
 On the signed-in user's friends page:
-
+readme
 - Open a Steam-styled dialog, search the friends list, and explicitly choose which profiles should receive the reviewed comment. Recipients start unselected until you pick them; the last selection is restored the next time you open the dialog.
 - Follow live posted, skipped, and failed counts, progress, and the current profile.
 - Wait three seconds between comments, skip profiles that do not allow comments, wait 20 seconds after other failures before continuing, and retry bounded cooldown responses after a randomized 10-to-15-second delay (or Steam's longer `Retry-After` value).
@@ -45,9 +45,9 @@ On the signed-in user's friends page:
 
 The extension asks for confirmation before a run begins. Comments already posted remain on the recipient profiles if a run is stopped.
 
-<img src="radme-assets\buttons.png" alt="Button">
+<img src="readme-assets\buttons.png" alt="Button">
 
-<img src="radme-assets\friends-selector.png" width="500" alt="Friends selector">
+<img src="readme-assets\friends-selector.png" width="500" alt="Friends selector">
 
 ### Steam inventory
 
@@ -64,7 +64,7 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 > [!WARNING]
 > Inventory valuations are estimates, not guarantees. Steam's final price, fees, eligibility, restrictions, and any required mobile or email confirmations are authoritative. Selling or converting an item to Gems can be irreversible.
 
-<img src="assets/Screenshot 2026-10-14 000017.png" width="500" alt="Inventory">
+<img src="readme-assets\inventory.png" width="500" alt="Inventory">
 
 ### Steam Store search results
 
@@ -74,9 +74,9 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 
 Bundle rows are not supported. When a game has multiple purchase options, the cart action uses Steam's first/default package.
 
-<img src="radme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
+<img src="readme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
 
-<img src="radme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
+<img src="readme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
 
 ## Where it runs
 

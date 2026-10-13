@@ -32,7 +32,7 @@ On the signed-in user's own badge pages:
 > [!WARNING]
 > Auto-crafting consumes cards and cannot be undone. The extension asks for confirmation before crafting begins.
 
-<img src="https://i.ibb.co/fdgkZdkp/image.png" alt="Steam badge">
+<img src="radme-assets\badges.png" alt="Steam badge">
 
 ### Friends page
 
@@ -45,9 +45,9 @@ On the signed-in user's friends page:
 
 The extension asks for confirmation before a run begins. Comments already posted remain on the recipient profiles if a run is stopped.
 
-<img src="https://i.ibb.co/fYfRQKbq/Capture-d-cran-2026-08-22-231750.png" alt="Button">
+<img src="radme-assets\buttons.png" alt="Button">
 
-<img src="https://i.ibb.co/j9jYqjPq/Capture-d-cran-2026-08-22-231800.png" width="500" alt="Friends selector">
+<img src="radme-assets\friends-selector.png" width="500" alt="Friends selector">
 
 ### Steam inventory
 
@@ -64,7 +64,7 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 > [!WARNING]
 > Inventory valuations are estimates, not guarantees. Steam's final price, fees, eligibility, restrictions, and any required mobile or email confirmations are authoritative. Selling or converting an item to Gems can be irreversible.
 
-<img src="https://i.ibb.co/KcNWGxDW/image.png" width="500" alt="Inventory">
+<img src="radme-assets\inventory.png" width="500" alt="Inventory">
 
 ### Steam Store search results
 
@@ -74,9 +74,9 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 
 Bundle rows are not supported. When a game has multiple purchase options, the cart action uses Steam's first/default package.
 
-<img src="https://i.ibb.co/wFfwYrVW/Screenshot-2026-07-26-012816.png" alt="Selection checkboxes on Steam search results">
+<img src="radme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
 
-<img src="https://i.ibb.co/yc324R1q/image.png" alt="Bulk cart and wishlist action bar">
+<img src="radme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
 
 ## Where it runs
 

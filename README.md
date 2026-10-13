@@ -64,7 +64,7 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 > [!WARNING]
 > Inventory valuations are estimates, not guarantees. Steam's final price, fees, eligibility, restrictions, and any required mobile or email confirmations are authoritative. Selling or converting an item to Gems can be irreversible.
 
-<img src="https://i.ibb.co/KcNWGxDW/image.png" width="500" alt="Inventory">
+<img src="assets/Screenshot 2026-10-14 000017.png" width="500" alt="Inventory">
 
 ### Steam Store search results
 

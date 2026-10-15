@@ -4,9 +4,11 @@ All notable changes to the browser-extension edition are documented here.
 
 ## Unreleased
 
+## 1.3.2 - 2026-10-15
+
 ### Added
 
-- A confirmed, paced action to clear the signed-in account's Steam wishlist from a wishlist page.
+- A wishlist-page action that confirms Steam's displayed item count, then uses Steam's native remove controls one at a time to clear the signed-in account's wishlist without relying on a page-exposed session ID.
 
 ### Fixed
 

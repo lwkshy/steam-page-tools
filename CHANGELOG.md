@@ -4,6 +4,12 @@ All notable changes to the browser-extension edition are documented here.
 
 ## Unreleased
 
+### Added
+
+- A confirmed, paced action to clear the signed-in account's Steam wishlist from a wishlist page.
+
+### Fixed
+
 - Inventory pricing for CS2 items correctly identifies Trade Protected items and completely excludes permanent unmarketable items.
 - Fixed UI race conditions when switching tabs during inventory loading.
 

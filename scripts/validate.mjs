@@ -33,6 +33,7 @@ const matches = [
     'https://steamcommunity.com/id/*',
     'https://steamcommunity.com/profiles/*',
     'https://store.steampowered.com/search*',
+    'https://store.steampowered.com/wishlist/*',
 ];
 const icons = {
     16: 'assets/icons/icon-16.png',
@@ -51,6 +52,7 @@ const settingsMatches = [
     'https://steamcommunity.com/id/*',
     'https://steamcommunity.com/profiles/*',
     'https://store.steampowered.com/search*',
+    'https://store.steampowered.com/wishlist/*',
 ];
 const settingsContentScript = {
     matches: settingsMatches,
@@ -348,6 +350,10 @@ async function validateContentSource() {
         'spt-friends-comment-lock',
         'spt-friends-comment-selection',
         'spt-search-cart-selection',
+        'spt-wishlist-wipe',
+        'Clear my wishlist',
+        'nativeRemoveButtons',
+        'Remove all ${total} game(s) from your Steam wishlist?',
         'Comment friends',
         'spt-friends-selector',
         'Search friends...',

@@ -71,6 +71,7 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 - Select games directly from the search results.<>
 - Add selected games to the cart in one run.
 - Add selected games to the wishlist after refreshing the account's current wishlist; games already on it are skipped automatically.
+- On a wishlist page, clear the signed-in account's entire wishlist after confirming Steam's displayed item count. The extension uses Steam's native remove controls one at a time, so Steam retains control of authentication and rate limits.
 
 Bundle rows are not supported. When a game has multiple purchase options, the cart action uses Steam's first/default package.
 
@@ -88,6 +89,7 @@ https://steamcommunity.com/my/inventory*
 https://steamcommunity.com/id/*
 https://steamcommunity.com/profiles/*
 https://store.steampowered.com/search*
+https://store.steampowered.com/wishlist/*
 ```
 
 It does not request access to every website, a background process, or a service worker. Its toolbar popup uses only the WebExtension `storage` permission to retain feature on/off settings.

@@ -10,6 +10,7 @@ import {
 const modules = await loadModules([
     'types.js',
     'storage.js',
+    'inventory-service.js',
     'pricing-service.js',
 ]);
 

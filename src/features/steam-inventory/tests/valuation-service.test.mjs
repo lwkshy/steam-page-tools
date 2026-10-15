@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import { loadModules } from './helpers.mjs';
 
-const modules = await loadModules(['types.js', 'valuation-service.js']);
+const modules = await loadModules([
+    'types.js',
+    'inventory-service.js',
+    'valuation-service.js',
+]);
 
 test('aggregates per-game and overall priced versus unpriced quantities', () => {
     const result = modules.valuationService.aggregate([

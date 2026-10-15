@@ -262,6 +262,7 @@
             settings.storeTools
         ) {
             initSearchBulkCart();
+            initWishlistWiper();
         }
     }
 
@@ -3720,6 +3721,10 @@
     // Apps with multiple purchase options use Steam's first/default package,
     // matching the primary action on the app page.
     function initSearchBulkCart() {
+        if (!/^\/search\/?$/i.test(location.pathname)) {
+            return;
+        }
+
         const STORAGE_KEY = 'spt-search-cart-selection';
         const LEGACY_STORAGE_KEY = 'dbf-search-cart-selection';
 
@@ -4629,5 +4634,143 @@
 
             document.head.appendChild(style);
         }
+    }
+
+    // Wishlist clearing uses Steam's own rendered removal controls. The
+    // current React wishlist does not expose a session ID to page scripts,
+    // while its controls retain Steam's native authentication and behavior.
+    function initWishlistWiper() {
+        if (!/^\/wishlist(?:\/(?:id\/[^/]+|profiles\/\d+))?\/?$/i
+            .test(location.pathname)) {
+            return;
+        }
+
+        const button = document.createElement('button');
+
+        button.id = 'spt-wishlist-wipe';
+        button.type = 'button';
+        button.textContent = 'Clear my wishlist';
+        button.title =
+            'Remove every game from your signed-in Steam wishlist after confirmation';
+        button.style.cssText =
+            'position:fixed;right:20px;bottom:20px;z-index:10000;' +
+            'border:1px solid #a34c4c;border-radius:3px;padding:9px 13px;' +
+            'background:#5a2020;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5);' +
+            'cursor:pointer;font:13px "Motiva Sans",Arial,sans-serif;';
+        document.body.appendChild(button);
+
+        function setState(text, busy = false) {
+            button.textContent = text;
+            button.disabled = busy;
+            button.style.cursor = busy ? 'wait' : 'pointer';
+            button.style.opacity = busy ? '.7' : '1';
+        }
+
+        function getWishlistCount() {
+            const text = document.body.innerText || document.body.textContent;
+            const match = text.match(/\b(\d+)\s+ITEMS\b/i);
+
+            return match ? Number.parseInt(match[1], 10) : 0;
+        }
+
+        function nativeRemoveButtons() {
+            return [...document.querySelectorAll('button')].filter((candidate) => (
+                candidate.textContent.trim().toLowerCase() === 'remove' &&
+                candidate.closest('[data-rfd-draggable-id^="WishlistItem-"]')
+            ));
+        }
+
+        function waitForNativeRemoval(row, itemId) {
+            if (!row.isConnected || row.dataset.rfdDraggableId !== itemId) {
+                return Promise.resolve(true);
+            }
+
+            return new Promise((resolve) => {
+                let timer;
+                const observer = new MutationObserver(() => {
+                    if (!row.isConnected || row.dataset.rfdDraggableId !== itemId) {
+                        finish(true);
+                    }
+                });
+
+                function finish(removed) {
+                    observer.disconnect();
+                    clearTimeout(timer);
+                    resolve(removed);
+                }
+
+                observer.observe(document.body, {
+                    attributes: true,
+                    childList: true,
+                    subtree: true,
+                });
+                timer = setTimeout(() => finish(false), 5000);
+            });
+        }
+
+        async function clearWishlist() {
+            if (button.disabled) {
+                return;
+            }
+
+            setState('Checking your wishlist…', true);
+
+            const total = getWishlistCount();
+
+            if (!total) {
+                setState('Your wishlist is already empty');
+                return;
+            }
+
+            if (!window.confirm(
+                `Remove all ${total} game(s) from your Steam wishlist?\n\n` +
+                'Steam will process one native removal at a time.'
+            )) {
+                setState('Clear my wishlist');
+                return;
+            }
+
+            let removed = 0;
+
+            while (removed < total) {
+                const removeButton = nativeRemoveButtons()[0];
+
+                if (!removeButton) {
+                    break;
+                }
+
+                const row = removeButton.closest(
+                    '[data-rfd-draggable-id^="WishlistItem-"]'
+                );
+                const itemId = row?.dataset.rfdDraggableId;
+
+                if (!row || !itemId) {
+                    break;
+                }
+
+                setState(`Removing ${removed + 1} of ${total}…`, true);
+                removeButton.click();
+
+                if (!await waitForNativeRemoval(row, itemId)) {
+                    break;
+                }
+
+                removed += 1;
+
+                if (removed < total) {
+                    await sleep(400);
+                }
+            }
+
+            const remaining = total - removed;
+
+            setState(
+                remaining
+                    ? `Removed ${removed}; ${remaining} remain. Steam stopped the run.`
+                    : `Removed all ${removed} games.`
+            );
+        }
+
+        button.addEventListener('click', clearWishlist);
     }
 })();

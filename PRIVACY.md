@@ -81,7 +81,7 @@ Badge crafting consumes trading cards and cannot be undone. Steam Page Tools ask
 
 Friends-page comment runs publish the user's entered text to other Steam profiles. Steam Page Tools asks for confirmation, paces requests, and provides a stop control, but comments posted before a stop remain visible until they are removed through Steam.
 
-Cart and wishlist operations change the signed-in Steam account. Failed or rate-limited items remain selected when possible so the user can review or retry them.
+Cart and wishlist operations change the signed-in Steam account. Clearing a wishlist asks for confirmation with Steam's displayed item count, then activates Steam's own remove controls one at a time. Failed or rate-limited operations are not retried automatically.
 
 Inventory sales and Gems conversions can remove, list, or consume items and may be irreversible. Management controls appear only for the signed-in user's own inventory and require explicit item selection, a review screen, one confirmation per batch, and sequential revalidation. A mutation is never automatically retried after a network, timeout, or server ambiguity; the extension reconciles inventory where possible and requires manual Steam verification.
 

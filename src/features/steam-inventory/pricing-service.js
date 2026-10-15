@@ -431,10 +431,7 @@ inventoryModules.pricingService = (() => {
         }
 
         function getItemPrice(item, { force = false, signal } = {}) {
-            const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
-            const isApp753 = item.appId === '753';
-            const hasMarketValue = !isGem && (item.marketable || (item.marketHashName && (item.hasTemporaryHold || (isApp753 && (item.gem?.eligible || item.type === 'Booster Pack')))));
-            if (!hasMarketValue) {
+            if (!inventoryModules.inventoryService.hasMarketValue(item)) {
                 return Promise.resolve({
                     retrievedAt: nowImpl(),
                     status: 'unpriced',
@@ -491,10 +488,7 @@ inventoryModules.pricingService = (() => {
             const seen = new Set();
 
             for (const item of items) {
-                const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
-                const isApp753 = item.appId === '753';
-                const hasMarketValue = !isGem && (item.marketable || (item.marketHashName && (item.hasTemporaryHold || (isApp753 && (item.gem?.eligible || item.type === 'Booster Pack')))));
-                if (!hasMarketValue) {
+                if (!inventoryModules.inventoryService.hasMarketValue(item)) {
                     continue;
                 }
 

@@ -106,6 +106,10 @@ inventoryModules.index = (() => {
         );
     }
 
+    function isCurrentRefresh(controller, currentController) {
+        return controller === currentController && !controller.signal.aborted;
+    }
+
     function nativeInventoryState(
         nativeInventory = window.g_ActiveInventory,
         root = document
@@ -398,7 +402,9 @@ inventoryModules.index = (() => {
             }
 
             loadController?.abort();
-            loadController = new AbortController();
+            const controller = new AbortController();
+
+            loadController = controller;
             ui.setLoading(true);
             ui.setStatus('Loading Steam inventory pages…');
 
@@ -420,9 +426,13 @@ inventoryModules.index = (() => {
                                 `${progress.total} inventory tabs…`
                             );
                         },
-                        signal: loadController.signal,
+                        signal: controller.signal,
                     }
                 );
+
+                if (!isCurrentRefresh(controller, loadController)) {
+                    return;
+                }
 
                 items = result.items;
                 render();
@@ -440,6 +450,10 @@ inventoryModules.index = (() => {
                 const priced = await pricingService.priceItems(items, {
                     force: forcePrices,
                     onProgress(progress) {
+                        if (!isCurrentRefresh(controller, loadController)) {
+                            return;
+                        }
+
                         applyMarketPrice(progress.key, progress.snapshot);
                         render();
                         ui.setStatus(
@@ -447,8 +461,12 @@ inventoryModules.index = (() => {
                             `${progress.total} unique market items…`
                         );
                     },
-                    signal: loadController.signal,
+                    signal: controller.signal,
                 });
+
+                if (!isCurrentRefresh(controller, loadController)) {
+                    return;
+                }
 
                 applyMarketPrices(priced.prices);
                 render();
@@ -471,7 +489,7 @@ inventoryModules.index = (() => {
                     { error: Boolean(result.failures.length || priced.halted) }
                 );
             } catch (error) {
-                if (loadController.signal.aborted) {
+                if (!isCurrentRefresh(controller, loadController)) {
                     return;
                 }
                 ui.setStatus(
@@ -483,7 +501,7 @@ inventoryModules.index = (() => {
                     { error: error.code !== 'cancelled' }
                 );
             } finally {
-                if (!loadController.signal.aborted) {
+                if (loadController === controller) {
                     ui.setLoading(false);
                 }
             }
@@ -491,6 +509,8 @@ inventoryModules.index = (() => {
 
         function cancelRead() {
             loadController?.abort();
+            ui.setLoading(false);
+            ui.setStatus('Inventory loading cancelled.');
         }
 
         async function refreshSelectedPrices(selected, {
@@ -944,6 +964,7 @@ inventoryModules.index = (() => {
         getPageContext,
         init,
         inventoryKeyChanged,
+        isCurrentRefresh,
         nativeInventoryState,
         waitForNativeInventoryIdle,
     });

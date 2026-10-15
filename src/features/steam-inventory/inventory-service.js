@@ -120,6 +120,23 @@ inventoryModules.inventoryService = (() => {
             : '';
     }
 
+    function hasMarketValue(item) {
+        const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
+        const isApp753 = item.appId === '753';
+
+        return !isGem && (
+            item.marketable || (
+                item.marketHashName && (
+                    item.hasTemporaryHold || (
+                        isApp753 && (
+                            item.gem?.eligible || item.type === 'Booster Pack'
+                        )
+                    )
+                )
+            )
+        );
+    }
+
     function normalizeAsset(asset, description, context, refreshedAt) {
         const quantity = Number.parseInt(asset.amount || '1', 10);
         const gem = parseGemMetadata(description);
@@ -320,6 +337,7 @@ inventoryModules.inventoryService = (() => {
 
     return Object.freeze({
         createInventoryService,
+        hasMarketValue,
         listContexts,
         mergeInventoryPage,
         normalizeAsset,

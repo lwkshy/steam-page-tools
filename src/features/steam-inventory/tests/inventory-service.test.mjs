@@ -193,3 +193,57 @@ test('lists concrete contexts without duplicating app-wide context zero', () => 
     assert.equal(contexts.length, 1);
     assert.equal(contexts[0].contextId, '6');
 });
+
+test('prices temporary CS2 holds but excludes permanent unmarketable items', () => {
+    const context = {
+        appId: '730',
+        appName: 'Counter-Strike 2',
+        contextId: '2',
+    };
+    const asset = {
+        appid: '730',
+        assetid: '100',
+        classid: '200',
+        contextid: '2',
+    };
+    const tradeProtected = modules.inventoryService.normalizeAsset(asset, {
+        cache_expiration: '1760000000',
+        market_hash_name: 'AK-47 | Redline (Field-Tested)',
+        marketable: 0,
+        name: 'AK-47 | Redline (Field-Tested)',
+    }, context, 1234);
+    const permanentCollectible = modules.inventoryService.normalizeAsset({
+        ...asset,
+        assetid: '101',
+    }, {
+        descriptions: [{
+            color: 'ff4040',
+            value: 'Not Tradable, Not Marketable',
+        }],
+        market_hash_name: '5 Year Veteran Coin',
+        marketable: 0,
+        name: '5 Year Veteran Coin',
+    }, context, 1234);
+    const dateOnlyHold = modules.inventoryService.normalizeAsset({
+        ...asset,
+        assetid: '102',
+    }, {
+        market_hash_name: 'AWP | Asiimov (Field-Tested)',
+        marketable: 0,
+        name: 'AWP | Asiimov (Field-Tested)',
+        owner_descriptions: [{
+            color: 'ff4040',
+            value: 'Tradable After Oct 14, 2026',
+        }],
+    }, context, 1234);
+
+    assert.equal(tradeProtected.hasTemporaryHold, true);
+    assert.equal(modules.inventoryService.hasMarketValue(tradeProtected), true);
+    assert.equal(dateOnlyHold.hasTemporaryHold, true);
+    assert.equal(modules.inventoryService.hasMarketValue(dateOnlyHold), true);
+    assert.equal(permanentCollectible.hasTemporaryHold, false);
+    assert.equal(
+        modules.inventoryService.hasMarketValue(permanentCollectible),
+        false
+    );
+});

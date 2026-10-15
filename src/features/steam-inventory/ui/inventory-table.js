@@ -160,9 +160,8 @@ inventoryModules.inventoryTable = (() => {
                 return `Buy ${formatMinor(item.price.highestBuyGrossMinor)}`;
             }
 
-            const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
-            const isApp753 = item.appId === '753';
-            const hasMarketValue = !isGem && (item.marketable || (item.marketHashName && (item.hasTemporaryHold || (isApp753 && (item.gem?.eligible || item.type === 'Booster Pack')))));
+            const hasMarketValue = inventoryModules.inventoryService
+                .hasMarketValue(item);
 
             if (loading && hasMarketValue) {
                 return 'Loading…';
@@ -172,9 +171,8 @@ inventoryModules.inventoryTable = (() => {
         }
 
         function priceTitle(item) {
-            const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
-            const isApp753 = item.appId === '753';
-            const hasMarketValue = !isGem && (item.marketable || (item.marketHashName && (item.hasTemporaryHold || (isApp753 && (item.gem?.eligible || item.type === 'Booster Pack')))));
+            const hasMarketValue = inventoryModules.inventoryService
+                .hasMarketValue(item);
             if (
                 loading &&
                 hasMarketValue &&

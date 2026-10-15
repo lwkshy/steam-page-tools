@@ -215,6 +215,27 @@ test('detects active inventory changes that require selection clearing', async (
     assert.equal(indexModules.index.inventoryKeyChanged('', '440:2'), false);
 });
 
+test('keeps stale inventory refreshes from updating the active tab UI', async () => {
+    const indexModules = await loadModules(['index.js']);
+    const stale = new AbortController();
+    const current = new AbortController();
+
+    stale.abort();
+    assert.equal(
+        indexModules.index.isCurrentRefresh(stale, current),
+        false
+    );
+    assert.equal(
+        indexModules.index.isCurrentRefresh(current, current),
+        true
+    );
+    current.abort();
+    assert.equal(
+        indexModules.index.isCurrentRefresh(current, current),
+        false
+    );
+});
+
 test('detects Steam native inventory readiness without a fixed delay', async () => {
     const indexModules = await loadModules(['index.js']);
     const emptyRoot = {

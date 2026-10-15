@@ -79,6 +79,8 @@ Bundle rows are not supported. When a game has multiple purchase options, the ca
 
 <img src="readme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
 
+<img src="readme-assets\wishlist.png" alt="Bulk cart and wishlist action bar">
+
 ## Where it runs
 
 The extension is limited to these Steam page patterns:

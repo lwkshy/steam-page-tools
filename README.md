@@ -49,8 +49,7 @@ On the signed-in user's own badge pages:
 
 ### Friends page
 
-<img src="readme-assets\buttons.png" width="800" alt="Button">
-<img src="readme-assets/groups.png" width="400" alt="Groups" align="top"><img src="readme-assets\comments.png" width="400" alt="Comments">
+<img src="readme-assets\buttons.png" width="800" alt="Button"><br><img src="readme-assets/groups.png" width="400" alt="Groups" align="top"><img src="readme-assets\comments.png" width="400" alt="Comments">
 
 On the signed-in user's friends page:
 - Open a Steam-styled dialog, search the friends list, and explicitly choose which profiles should receive the reviewed comment. Recipients start unselected until you pick them; the last selection is restored the next time you open the dialog.

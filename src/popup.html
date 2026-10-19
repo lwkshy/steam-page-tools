@@ -28,8 +28,8 @@
         <section id="feature-settings" aria-label="Individual features">
             <label class="setting-row">
                 <span class="setting-copy">
-                    <strong>Profile link</strong>
-                    <span>Show the SteamSets profile shortcut.</span>
+                    <strong>Profile tools</strong>
+                    <span>SteamSets profile shortcut and clear comments on your profile.</span>
                 </span>
                 <input type="checkbox" data-setting="profileTools">
                 <span class="switch" aria-hidden="true"></span>
@@ -46,8 +46,8 @@
 
             <label class="setting-row">
                 <span class="setting-copy">
-                    <strong>Friends comments</strong>
-                    <span>Show the selected-friends comment tool.</span>
+                    <strong>Friends tools</strong>
+                    <span>Show friends commenting and group invitations.</span>
                 </span>
                 <input type="checkbox" data-setting="friendsComments">
                 <span class="switch" aria-hidden="true"></span>
@@ -64,6 +64,15 @@
 
             <label class="setting-row">
                 <span class="setting-copy">
+                    <strong>Market listings</strong>
+                    <span>Select, cancel, or relist your active listings.</span>
+                </span>
+                <input type="checkbox" data-setting="marketTools">
+                <span class="switch" aria-hidden="true"></span>
+            </label>
+
+            <label class="setting-row">
+                <span class="setting-copy">
                     <strong>Store bulk actions</strong>
                     <span>Selection, cart, and wishlist controls.</span>
                 </span>
@@ -75,7 +84,10 @@
 
     <footer>
         <span id="save-status" role="status" aria-live="polite"></span>
-        <span>Reload open Steam pages to apply changes.</span>
+        <div id="reload-section" hidden>
+            <span id="reload-hint">Reload open Steam pages to apply changes.</span>
+            <button id="reload-tabs" type="button">Reload tabs</button>
+        </div>
     </footer>
 
     <script src="settings.js"></script>

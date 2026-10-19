@@ -168,6 +168,27 @@ footer {
     color: #ff9b8d;
 }
 
+footer button {
+    margin-top: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    color: #d6d7d8;
+    background: #2a475e;
+    border: 1px solid #405466;
+    border-radius: 4px;
+    cursor: pointer;
+    align-self: center;
+}
+
+footer button:hover {
+    background: #3a5c76;
+}
+
+footer button:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .switch::after {
         transition: none;

@@ -4,6 +4,20 @@ All notable changes to the browser-extension edition are documented here.
 
 ## Unreleased
 
+## 1.4.0 - 2026-10-19
+
+### Added
+
+- Friends-page group invitations
+- A `Clear all comments` profile action
+- Steam Community Market tools (`https://steamcommunity.com/market/`):
+  - Bulk actions
+  - Feature toggle ("Market listings") in extension popup settings defaulting to enabled
+
+### Fixed
+
+- Settings popup
+
 ## 1.3.2 - 2026-10-15
 
 ### Added

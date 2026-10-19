@@ -7,6 +7,8 @@
     const STEAMSETS_PROFILE_ORIGIN = 'https://steamsets.com';
     const STEAMSETS_BADGE_SEARCH_URL =
         'https://beta.steamsets.com/badges/search';
+    const STEAM_ICON_ORIGIN =
+        'https://community.fastly.steamstatic.com/economy/image/';
     const STEAM_ID64_ACCOUNT_BASE = 76561197960265728n;
 
     function parsePinnedSteamUrl(value, requiredOrigin, base = requiredOrigin) {
@@ -248,6 +250,7 @@
         if (location.origin === STEAM_COMMUNITY_ORIGIN) {
             if (settings.profileTools) {
                 initSteamProfileTools();
+                initProfileCommentClearer();
             }
 
             if (settings.badgeTools) {
@@ -256,6 +259,10 @@
 
             if (settings.friendsComments) {
                 initFriendsPageTools();
+            }
+
+            if (settings.marketTools) {
+                initMarketTools();
             }
         } else if (
             location.origin === STEAM_STORE_ORIGIN &&
@@ -267,6 +274,463 @@
     }
 
     initEnabledFeatures();
+
+    // Profile comment removal shares the Profile tools setting with the
+    // SteamSets profile shortcut.
+    function initProfileCommentClearer() {
+        if (
+            !/^\/(?:my|id\/[^/]+|profiles\/\d{17})(?:\/allcomments)?\/?$/i
+                .test(location.pathname)
+        ) {
+            return;
+        }
+
+        const LOCK_KEY = 'spt-profile-comment-clear-lock';
+        const LOCK_TTL_MS = 30 * 1000;
+        const DELETE_DELAY_MS = 800;
+        const lockOwner =
+            `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        let heartbeat = null;
+        let running = false;
+        let stopRequested = false;
+
+        function injectStyles() {
+            if (document.querySelector('#spt-profile-comment-clear-styles')) {
+                return;
+            }
+
+            const style = document.createElement('style');
+
+            style.id = 'spt-profile-comment-clear-styles';
+            style.textContent = `
+                #spt-profile-comment-separator,
+                #spt-clear-profile-comments,
+                #spt-clear-profile-comments-status {
+                    color: #ffffff !important;
+                    display: block;
+                    float: none;
+                    font-family: "Motiva Sans", sans-serif !important;
+                    font-size: 12px !important;
+                    font-weight: 400 !important;
+                    line-height: 30px !important;
+                    text-decoration: none;
+                }
+
+                #spt-clear-profile-comments {
+                    cursor: pointer;
+                }
+
+                #spt-clear-profile-comments:hover {
+                    color: #e35d5b !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        function signedInSteamId() {
+            const knownSteamId = String(
+                window.g_steamID || window.UserYou?.strSteamId || ''
+            );
+
+            if (/^\d{17}$/.test(knownSteamId)) {
+                return knownSteamId;
+            }
+
+            // The profile comments page does not always expose g_steamID.
+            // Steam does identify the signed-in author of its own comment box
+            // with a 32-bit account ID, which can be converted locally.
+            const accountId = document.querySelector(
+                '.commentthread_entry .commentthread_user_avatar [data-miniprofile]'
+            )?.getAttribute('data-miniprofile') || '';
+
+            if (!/^\d+$/.test(accountId)) {
+                return '';
+            }
+
+            try {
+                return String(STEAM_ID64_ACCOUNT_BASE + BigInt(accountId));
+            } catch {
+                return '';
+            }
+        }
+
+        function profileSteamId() {
+            if (/^\/my(?:\/allcomments)?\/?$/i.test(location.pathname)) {
+                return signedInSteamId();
+            }
+
+            const profileId = String(window.g_rgProfileData?.steamid || '');
+
+            if (/^\d{17}$/.test(profileId)) {
+                return profileId;
+            }
+
+            const numericPathId = location.pathname.match(
+                /^\/profiles\/(\d{17})(?:\/|$)/i
+            )?.[1];
+
+            if (numericPathId) {
+                return numericPathId;
+            }
+
+            // Steam's all-comments route does not consistently expose
+            // g_rgProfileData. Its comment-thread key still names the profile
+            // owner, both in the page DOM and after Steam initializes it.
+            const threadKeys = [
+                ...Object.keys(window.g_rgCommentThreads || {}),
+                ...[...document.querySelectorAll('[id*="Profile_"]')]
+                    .map((element) => element.id),
+            ];
+
+            for (const key of threadKeys) {
+                const threadOwnerId = String(key).match(
+                    /Profile_(\d{17})(?:_|$)/i
+                )?.[1];
+
+                if (threadOwnerId) {
+                    return threadOwnerId;
+                }
+            }
+
+            return '';
+        }
+
+        let ownerId = '';
+
+        function ownProfileSteamId() {
+            const signedInId = signedInSteamId();
+            const profileId = profileSteamId();
+
+            return /^\d{17}$/.test(signedInId) && profileId === signedInId
+                ? profileId
+                : '';
+        }
+
+        function readLock() {
+            try {
+                return JSON.parse(localStorage.getItem(LOCK_KEY) || 'null');
+            } catch {
+                return null;
+            }
+        }
+
+        function writeLock() {
+            try {
+                localStorage.setItem(
+                    LOCK_KEY,
+                    JSON.stringify({ owner: lockOwner, time: Date.now() })
+                );
+                return readLock()?.owner === lockOwner;
+            } catch {
+                return false;
+            }
+        }
+
+        function acquireLock() {
+            const lock = readLock();
+
+            if (
+                lock &&
+                lock.owner !== lockOwner &&
+                Number.isFinite(lock.time) &&
+                Date.now() - lock.time < LOCK_TTL_MS
+            ) {
+                return false;
+            }
+
+            if (!writeLock()) {
+                return false;
+            }
+
+            heartbeat = setInterval(writeLock, 10 * 1000);
+            return true;
+        }
+
+        function releaseLock() {
+            if (heartbeat !== null) {
+                clearInterval(heartbeat);
+                heartbeat = null;
+            }
+
+            try {
+                if (readLock()?.owner === lockOwner) {
+                    localStorage.removeItem(LOCK_KEY);
+                }
+            } catch {
+                // A stale lock expires automatically if storage is unavailable.
+            }
+        }
+
+        function sessionId() {
+            if (window.g_sessionID) {
+                return window.g_sessionID;
+            }
+
+            const match = document.cookie.match(
+                /(?:^|;\s*)sessionid=([^;]+)/
+            );
+
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+
+        async function loadCurrentComments(currentSessionId) {
+            const url = requirePinnedSteamUrl(
+                `/comment/Profile/render/${ownerId}/-1/`,
+                STEAM_COMMUNITY_ORIGIN
+            );
+            const body = new URLSearchParams({
+                count: '100',
+                start: '0',
+                newest_first: 'true',
+                sessionid: currentSessionId,
+            });
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Accept: 'application/json',
+                },
+                body: body.toString(),
+            });
+
+            requirePinnedSteamResponseUrl(
+                response,
+                STEAM_COMMUNITY_ORIGIN,
+                url
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Steam returned HTTP ${response.status} while loading comments.`
+                );
+            }
+
+            const result = await response.json();
+            const doc = new DOMParser().parseFromString(
+                String(result?.comments_html || ''),
+                'text/html'
+            );
+            const commentIds = [...new Set(
+                [...doc.querySelectorAll('[id^="comment_"]')]
+                    .map((element) => element.id.slice('comment_'.length))
+                    .filter((commentId) => /^\d+$/.test(commentId))
+            )];
+
+            const total = Number(result?.total_count);
+
+            return {
+                commentIds,
+                total: Number.isSafeInteger(total) && total >= commentIds.length
+                    ? total
+                    : null,
+            };
+        }
+
+        async function deleteComment(commentId, currentSessionId) {
+            const url = requirePinnedSteamUrl(
+                `/comment/Profile/delete/${ownerId}/-1/`,
+                STEAM_COMMUNITY_ORIGIN
+            );
+            const body = new URLSearchParams({
+                gidcomment: commentId,
+                sessionid: currentSessionId,
+            });
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Accept: 'application/json',
+                },
+                body: body.toString(),
+            });
+
+            requirePinnedSteamResponseUrl(
+                response,
+                STEAM_COMMUNITY_ORIGIN,
+                url
+            );
+
+            let result = null;
+
+            try {
+                result = await response.json();
+            } catch {
+                // Steam can return HTML if the session expires.
+            }
+
+            if (
+                response.ok &&
+                (result?.success === 1 || result?.success === '1' ||
+                    result?.success === true)
+            ) {
+                return;
+            }
+
+            throw new Error(
+                String(result?.error ||
+                    `Steam returned HTTP ${response.status} while deleting a comment.`)
+            );
+        }
+
+        function installControl() {
+            if (document.querySelector('#spt-clear-profile-comments')) {
+                return true;
+            }
+
+            ownerId = ownProfileSteamId();
+
+            if (!ownerId) {
+                return false;
+            }
+
+            const subscription = document.querySelector(
+                '.commentthread_subscribe_checkbox_ctn'
+            );
+
+            if (!subscription) {
+                return false;
+            }
+
+            injectStyles();
+
+            const separator = document.createElement('span');
+            const button = document.createElement('a');
+            const status = document.createElement('span');
+
+            separator.textContent = '|';
+            separator.id = 'spt-profile-comment-separator';
+            separator.className = 'commentthread_subscribe_desc';
+            separator.style.margin = '0 8px';
+            button.id = 'spt-clear-profile-comments';
+            button.className = 'commentthread_subscribe_desc';
+            button.href = '#';
+            button.textContent = 'Clear all comments';
+            button.title = 'Delete every comment on this profile';
+            button.style.cssText = 'float:none; margin:0;';
+            status.id = 'spt-clear-profile-comments-status';
+            status.setAttribute('aria-live', 'polite');
+            status.style.marginLeft = '6px';
+            subscription.append(separator, button, status);
+
+            const setStatus = (message) => {
+                status.textContent = message;
+            };
+            const resetButton = () => {
+                button.textContent = 'Clear all comments';
+                button.removeAttribute('aria-disabled');
+            };
+
+            button.addEventListener('click', async (event) => {
+                event.preventDefault();
+
+                if (running) {
+                    stopRequested = true;
+                    button.textContent = 'Stopping…';
+                    button.setAttribute('aria-disabled', 'true');
+                    setStatus('Stopping after the current request…');
+                    return;
+                }
+
+                const currentSessionId = sessionId();
+
+                if (!currentSessionId) {
+                    setStatus('Your Steam session is unavailable. Reload and sign in again.');
+                    return;
+                }
+
+                button.setAttribute('aria-disabled', 'true');
+                button.textContent = 'Checking comments…';
+
+                let firstPage;
+
+                try {
+                    firstPage = await loadCurrentComments(currentSessionId);
+                } catch (err) {
+                    resetButton();
+                    setStatus(`Could not load comments: ${err.message}`);
+                    return;
+                }
+
+                if (!firstPage.commentIds.length) {
+                    resetButton();
+                    setStatus('There are no comments to clear.');
+                    return;
+                }
+
+                const count = firstPage.total ?? firstPage.commentIds.length;
+
+                if (!window.confirm(
+                    `Delete ${count} profile comment${count === 1 ? '' : 's'}?\n\n` +
+                    'This cannot be undone. The extension will delete one comment at a time and stop if Steam rejects a request.'
+                )) {
+                    resetButton();
+                    setStatus('Clear cancelled.');
+                    return;
+                }
+
+                if (!acquireLock()) {
+                    resetButton();
+                    setStatus('Another tab is already clearing profile comments.');
+                    return;
+                }
+
+                running = true;
+                stopRequested = false;
+                let deleted = 0;
+
+                try {
+                    let page = firstPage;
+
+                    while (page.commentIds.length && !stopRequested) {
+                        for (const commentId of page.commentIds) {
+                            if (stopRequested) {
+                                break;
+                            }
+
+                            button.textContent = 'Stop clearing';
+                            button.removeAttribute('aria-disabled');
+                            setStatus(`Deleted ${deleted} of ${count}…`);
+                            await deleteComment(commentId, currentSessionId);
+                            deleted += 1;
+
+                            if (!stopRequested) {
+                                await sleep(DELETE_DELAY_MS);
+                            }
+                        }
+
+                        if (!stopRequested) {
+                            page = await loadCurrentComments(currentSessionId);
+                        }
+                    }
+
+                    setStatus(stopRequested
+                        ? `Stopped after deleting ${deleted} comment${deleted === 1 ? '' : 's'}.`
+                        : `Deleted ${deleted} comment${deleted === 1 ? '' : 's'}. Reload to update the page.`);
+                } catch (err) {
+                    setStatus(
+                        `Stopped after ${deleted} deletion${deleted === 1 ? '' : 's'}: ${err.message}`
+                    );
+                } finally {
+                    releaseLock();
+                    running = false;
+                    resetButton();
+                }
+            });
+
+            return true;
+        }
+
+        let attempts = 0;
+        const interval = setInterval(() => {
+            attempts += 1;
+
+            if (installControl() || attempts >= 40) {
+                clearInterval(interval);
+            }
+        }, 250);
+    }
 
     // Friends page tools.
     function initFriendsPageTools() {
@@ -283,7 +747,9 @@
         const COOLDOWN_MAX_MS = 15 * 1000;
         const MAX_COOLDOWN_RETRIES = 3;
         const COMMENT_LOCK_KEY = 'spt-friends-comment-lock';
+        const INVITE_LOCK_KEY = 'spt-friends-invite-lock';
         const COMMENT_SELECTION_KEY = 'spt-friends-comment-selection';
+        const INVITE_SELECTION_KEY = 'spt-friends-invite-selection';
         const COMMENT_LOCK_TTL_MS = 30 * 1000;
         const lockOwner =
             `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -352,17 +818,31 @@
         function readCommentLock() {
             try {
                 return JSON.parse(
-                    localStorage.getItem(COMMENT_LOCK_KEY) || 'null'
+                    localStorage.getItem(
+                        lockKeyForAction()
+                    ) || 'null'
                 );
             } catch {
                 return null;
             }
         }
 
+        function lockKeyForAction() {
+            return currentAction === 'invite'
+                ? INVITE_LOCK_KEY
+                : COMMENT_LOCK_KEY;
+        }
+
+        function selectionKeyForAction() {
+            return currentAction === 'invite'
+                ? INVITE_SELECTION_KEY
+                : COMMENT_SELECTION_KEY;
+        }
+
         function writeCommentLock() {
             try {
                 localStorage.setItem(
-                    COMMENT_LOCK_KEY,
+                    lockKeyForAction(),
                     JSON.stringify({ owner: lockOwner, time: Date.now() })
                 );
 
@@ -404,7 +884,7 @@
 
             try {
                 if (readCommentLock()?.owner === lockOwner) {
-                    localStorage.removeItem(COMMENT_LOCK_KEY);
+                    localStorage.removeItem(lockKeyForAction());
                 }
             } catch (err) {
                 console.warn(
@@ -419,7 +899,7 @@
         // starts with nobody selected.
         function loadSavedFriendSelection() {
             try {
-                const raw = localStorage.getItem(COMMENT_SELECTION_KEY);
+                const raw = localStorage.getItem(selectionKeyForAction());
 
                 if (!raw) {
                     return [];
@@ -448,7 +928,7 @@
         function saveFriendSelection(steamids) {
             try {
                 localStorage.setItem(
-                    COMMENT_SELECTION_KEY,
+                    selectionKeyForAction(),
                     JSON.stringify([...steamids])
                 );
             } catch (err) {
@@ -551,6 +1031,164 @@
             throw err;
         }
 
+        function getSignedInSteamId() {
+            const pageOwnerId = /^\/my\/friends\/?$/i.test(
+                location.pathname
+            )
+                ? window.g_rgProfileData?.steamid
+                : '';
+            const steamid = String(
+                window.g_steamID ||
+                window.UserYou?.strSteamId ||
+                pageOwnerId ||
+                ''
+            );
+
+            return /^\d{17}$/.test(steamid) ? steamid : '';
+        }
+
+        function isOwnFriendsPage() {
+            const currentSteamId = getSignedInSteamId();
+
+            if (!currentSteamId) {
+                return false;
+            }
+
+            if (/^\/my\/friends\/?$/i.test(location.pathname)) {
+                return true;
+            }
+
+            const profileMatch = location.pathname.match(
+                /^\/profiles\/(\d{17})\/friends\/?$/i
+            );
+            const pageSteamId = profileMatch?.[1] ||
+                String(window.g_rgProfileData?.steamid || '');
+
+            return pageSteamId === currentSteamId;
+        }
+
+        async function loadInviteGroups() {
+            const steamid = getSignedInSteamId();
+
+            if (!steamid || !isOwnFriendsPage()) {
+                throw new Error(
+                    'Group invitations are available only on your own friends page.'
+                );
+            }
+
+            const groupsUrl = requirePinnedSteamUrl(
+                `/profiles/${steamid}/ajaxgroupinvite`,
+                STEAM_COMMUNITY_ORIGIN
+            );
+
+            groupsUrl.searchParams.set('new_profile', '1');
+            groupsUrl.searchParams.set('bulk', '1');
+
+            const response = await fetch(groupsUrl, {
+                credentials: 'include',
+                headers: { Accept: 'text/html' },
+            });
+
+            requirePinnedSteamResponseUrl(
+                response,
+                STEAM_COMMUNITY_ORIGIN,
+                groupsUrl
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Steam returned HTTP ${response.status} while loading groups.`
+                );
+            }
+
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const groups = new Map();
+
+            doc.querySelectorAll(
+                '.group_list_results [data-groupid]'
+            ).forEach((element) => {
+                const groupId = element.getAttribute('data-groupid') || '';
+
+                if (!/^\d{17,20}$/.test(groupId)) {
+                    return;
+                }
+
+                const name = element.textContent
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                groups.set(groupId, {
+                    groupId,
+                    name: name || `Steam group ${groupId}`,
+                });
+            });
+
+            if (!groups.size) {
+                throw new Error(
+                    'Steam did not return any groups you can invite friends to.'
+                );
+            }
+
+            return [...groups.values()];
+        }
+
+        async function inviteFriendToGroup(friend, groupId, sessionid) {
+            const inviteUrl = requirePinnedSteamUrl(
+                '/actions/GroupInvite',
+                STEAM_COMMUNITY_ORIGIN
+            );
+            const body = new URLSearchParams({
+                group: groupId,
+                invitee: friend.steamid,
+                json: '1',
+                sessionID: sessionid,
+                type: 'groupInvite',
+            });
+            const response = await fetch(inviteUrl, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Accept: 'application/json',
+                },
+                body: body.toString(),
+            });
+
+            requirePinnedSteamResponseUrl(
+                response,
+                STEAM_COMMUNITY_ORIGIN,
+                inviteUrl
+            );
+
+            let result = null;
+
+            try {
+                result = await response.json();
+            } catch {
+                // Steam can return an HTML error page for expired sessions.
+            }
+
+            if (response.ok) {
+                return {
+                    duplicate: result?.duplicate === true ||
+                        result?.duplicate === 1 ||
+                        result?.duplicate === '1',
+                };
+            }
+
+            const message = String(
+                result?.error || `Steam returned HTTP ${response.status}`
+            ).trim();
+            const err = new Error(message);
+
+            err.cooldown =
+                response.status === 429 ||
+                /too\s+many|rate[\s-]?limit|slow\s+down|try\s+again\s+later|cooldown/i
+                    .test(message);
+            throw err;
+        }
+
         function addFriendsCommentButton(titleBar) {
             if (document.querySelector('#spt-friends-comment-button')) {
                 return;
@@ -568,7 +1206,9 @@
 
             label.textContent = 'Comment friends';
             button.appendChild(label);
-            button.addEventListener('click', openFriendsCommentDialog);
+            button.addEventListener('click', () => {
+                openFriendsDialog('comment');
+            });
 
             const addButton = titleBar.querySelector('#add_friends_button');
             const manageButton = Array.from(
@@ -594,6 +1234,26 @@
                 actions.appendChild(manageItem);
             }
 
+            if (isOwnFriendsPage()) {
+                const inviteButton = document.createElement('button');
+
+                inviteButton.id = 'spt-friends-invite-button';
+                inviteButton.type = 'button';
+                inviteButton.className =
+                    'profile_friends manage_link ' +
+                    'btnv6_blue_hoverfade btn_medium';
+
+                const inviteLabel = document.createElement('span');
+
+                inviteLabel.textContent = 'Invite to group';
+                inviteButton.appendChild(inviteLabel);
+                inviteButton.addEventListener(
+                    'click',
+                    openFriendsInviteDialog
+                );
+                actions.appendChild(inviteButton);
+            }
+
             actions.appendChild(button);
 
             if (addItem && addItem !== manageItem) {
@@ -601,11 +1261,40 @@
             }
         }
 
-        function openFriendsCommentDialog() {
+        async function openFriendsInviteDialog(event) {
+            const button = event.currentTarget;
+            const label = button.querySelector('span');
+
+            button.disabled = true;
+            label.textContent = 'Loading groups...';
+
+            try {
+                const groups = await loadInviteGroups();
+
+                openFriendsDialog('invite', groups);
+            } catch (err) {
+                console.error(
+                    'Steam Page Tools: failed to load groups for invitations',
+                    err
+                );
+                window.alert(
+                    `Could not load your Steam groups: ${err.message}`
+                );
+            } finally {
+                button.disabled = false;
+                label.textContent = 'Invite to group';
+            }
+        }
+
+        let currentAction = 'comment';
+
+        function openFriendsDialog(action, inviteGroups = []) {
             if (document.querySelector('#spt-friends-comment-overlay')) {
                 return;
             }
 
+            currentAction = action;
+            const isInvite = action === 'invite';
             const friends = getFriends();
 
             if (!friends.length) {
@@ -635,7 +1324,9 @@
             const title = document.createElement('div');
 
             title.id = 'spt-friends-comment-title';
-            title.textContent = 'Post a comment to friends';
+            title.textContent = isInvite
+                ? 'Invite friends to a group'
+                : 'Post a comment to friends';
 
             const closeButton = document.createElement('button');
 
@@ -657,9 +1348,11 @@
             const pace = document.createElement('p');
 
             pace.className = 'spt-friends-comment-note';
-            pace.textContent =
-                'There is a 3-second delay between comments. Profiles that ' +
-                'do not accept comments are skipped automatically.';
+            pace.textContent = isInvite
+                ? 'Invitations are sent one at a time with a 3-second delay. ' +
+                    'Steam may limit invitations.'
+                : 'There is a 3-second delay between comments. Profiles that ' +
+                    'do not accept comments are skipped automatically.';
 
             const knownSteamIds = new Set(
                 friends.map((friend) => friend.steamid)
@@ -685,7 +1378,9 @@
 
             selectorTitle.id = 'spt-friends-selector-title';
             selectorTitle.className = 'spt-friends-selector-title';
-            selectorTitle.textContent = 'Choose friends';
+            selectorTitle.textContent = isInvite
+                ? 'Choose friends to invite'
+                : 'Choose friends';
 
             const selectionCount = document.createElement('div');
 
@@ -732,7 +1427,9 @@
             friendList.setAttribute('role', 'group');
             friendList.setAttribute(
                 'aria-label',
-                'Friends who will receive the profile comment'
+                isInvite
+                    ? 'Friends who will receive a group invitation'
+                    : 'Friends who will receive the profile comment'
             );
 
             const friendOptions = friends.map((friend) => {
@@ -747,7 +1444,9 @@
                 checkbox.checked = selectedSteamIds.has(friend.steamid);
                 checkbox.setAttribute(
                     'aria-label',
-                    `Post the comment to ${friend.name}`
+                    isInvite
+                        ? `Invite ${friend.name} to the selected group`
+                        : `Post the comment to ${friend.name}`
                 );
 
                 let avatar;
@@ -795,19 +1494,56 @@
             selector.appendChild(selectorControls);
             selector.appendChild(friendList);
 
-            const textarea = document.createElement('textarea');
+            const groupControl = document.createElement('div');
 
-            textarea.id = 'spt-friends-comment-text';
-            textarea.className = 'commentthread_textarea';
-            textarea.rows = 5;
-            textarea.maxLength = 1000;
-            textarea.placeholder = 'Enter the profile comment to post';
-            textarea.setAttribute('aria-label', 'Profile comment');
+            groupControl.className = 'spt-friends-group-control';
+            groupControl.hidden = !isInvite;
 
-            const characterCount = document.createElement('div');
+            const groupLabel = document.createElement('label');
 
-            characterCount.className = 'spt-friends-character-count';
-            characterCount.textContent = '0 / 1000';
+            groupLabel.htmlFor = 'spt-friends-group-select';
+            groupLabel.textContent = 'Group';
+
+            const groupSelect = document.createElement('select');
+
+            groupSelect.id = 'spt-friends-group-select';
+            groupSelect.className = 'spt-friends-group-select';
+            groupSelect.setAttribute('aria-label', 'Choose a Steam group');
+
+            const emptyGroupOption = document.createElement('option');
+
+            emptyGroupOption.value = '';
+            emptyGroupOption.textContent = 'Select a group...';
+            groupSelect.appendChild(emptyGroupOption);
+
+            inviteGroups.forEach((group) => {
+                const option = document.createElement('option');
+
+                option.value = group.groupId;
+                option.textContent = group.name;
+                groupSelect.appendChild(option);
+            });
+
+            groupControl.appendChild(groupLabel);
+            groupControl.appendChild(groupSelect);
+
+            let textarea;
+            let characterCount;
+            if (!isInvite) {
+                textarea = document.createElement('textarea');
+
+                textarea.id = 'spt-friends-comment-text';
+                textarea.className = 'commentthread_textarea';
+                textarea.rows = 5;
+                textarea.maxLength = 1000;
+                textarea.placeholder = 'Enter the profile comment to post';
+                textarea.setAttribute('aria-label', 'Profile comment');
+
+                characterCount = document.createElement('div');
+
+                characterCount.className = 'spt-friends-character-count';
+                characterCount.textContent = '0 / 1000';
+            }
 
             const progress = document.createElement('div');
 
@@ -842,7 +1578,10 @@
             actions.className = 'spt-friends-comment-actions';
 
             const cancelButton = makeDialogButton('Cancel', false);
-            const startButton = makeDialogButton('Start posting', true);
+            const startButton = makeDialogButton(
+                isInvite ? 'Start inviting' : 'Start posting',
+                true
+            );
             const stopButton = makeDialogButton('Stop after current', false);
 
             stopButton.hidden = true;
@@ -853,8 +1592,11 @@
             content.appendChild(description);
             content.appendChild(pace);
             content.appendChild(selector);
-            content.appendChild(textarea);
-            content.appendChild(characterCount);
+            content.appendChild(groupControl);
+            if (!isInvite) {
+                content.appendChild(textarea);
+                content.appendChild(characterCount);
+            }
             content.appendChild(progress);
             content.appendChild(actions);
             dialog.appendChild(header);
@@ -891,13 +1633,16 @@
             function updateSelectionSummary() {
                 const selectedCount = selectedSteamIds.size;
 
-                description.textContent =
-                    'The same public profile comment will be posted to ' +
-                    `${selectedCount} selected friend(s), one at a time.`;
+                description.textContent = isInvite
+                    ? `A group invitation will be sent to ${selectedCount} ` +
+                        'selected friend(s), one at a time.'
+                    : 'The same public profile comment will be posted to ' +
+                        `${selectedCount} selected friend(s), one at a time.`;
                 selectionCount.textContent =
                     `${selectedCount} selected · ` +
                     `${visibleFriendCount} shown`;
-                startButton.disabled = selectedCount === 0;
+                startButton.disabled = selectedCount === 0 ||
+                    (isInvite && !groupSelect.value);
             }
 
             function applyFriendFilter() {
@@ -940,6 +1685,7 @@
                 friendSearch.disabled = true;
                 selectShownButton.disabled = true;
                 clearShownButton.disabled = true;
+                groupSelect.disabled = true;
 
                 friendOptions.forEach((option) => {
                     option.checkbox.disabled = true;
@@ -966,9 +1712,11 @@
             }
 
             function setCounters(posted, skipped, failed) {
-                counters.textContent =
-                    `Posted: ${posted}  |  Skipped: ${skipped}  |  ` +
-                    `Failed: ${failed}`;
+                counters.textContent = isInvite
+                    ? `Invited: ${posted}  |  Skipped: ${skipped}  |  ` +
+                        `Failed: ${failed}`
+                    : `Posted: ${posted}  |  Skipped: ${skipped}  |  ` +
+                        `Failed: ${failed}`;
             }
 
             function setProgress(completed, total) {
@@ -995,11 +1743,22 @@
             }
 
             async function run() {
-                const comment = textarea.value.trim();
+                const comment = isInvite ? '' : textarea.value.trim();
+                const selectedGroup = isInvite
+                    ? inviteGroups.find(
+                        (group) => group.groupId === groupSelect.value
+                    )
+                    : null;
 
-                if (!comment) {
+                if (!isInvite && !comment) {
                     setStatus('Enter a comment before starting.');
                     textarea.focus();
+                    return;
+                }
+
+                if (isInvite && !selectedGroup) {
+                    setStatus('Choose a group before starting.');
+                    groupSelect.focus();
                     return;
                 }
 
@@ -1022,12 +1781,20 @@
                     return;
                 }
 
-                const confirmed = window.confirm(
-                    `Post this comment publicly to ${selectedFriends.length} ` +
-                    'friend profile(s)?\n\n' +
-                    'The run can take a long time. You can stop it after the ' +
-                    'current request, but comments already posted will remain.'
-                );
+                const confirmed = isInvite
+                    ? window.confirm(
+                        `Invite ${selectedFriends.length} friend(s) to ` +
+                        `${selectedGroup.name}?\n\n` +
+                        'Invitations will be sent one at a time. You can stop ' +
+                        'after the current request.'
+                    )
+                    : window.confirm(
+                        `Post this comment publicly to ` +
+                        `${selectedFriends.length} friend profile(s)?\n\n` +
+                        'The run can take a long time. You can stop it after ' +
+                        'the current request, but comments already posted ' +
+                        'will remain.'
+                    );
 
                 if (!confirmed) {
                     return;
@@ -1035,13 +1802,17 @@
 
                 if (!acquireCommentLock()) {
                     setStatus(
-                        'Another friends-comment run is already active in a Steam tab.'
+                        isInvite
+                            ? 'Another group-invitation run is already active in a Steam tab.'
+                            : 'Another friends-comment run is already active in a Steam tab.'
                     );
                     return;
                 }
 
                 running = true;
-                textarea.disabled = true;
+                if (!isInvite) {
+                    textarea.disabled = true;
+                }
                 disableFriendSelector();
                 startButton.hidden = true;
                 cancelButton.hidden = true;
@@ -1074,27 +1845,53 @@
 
                         while (!stopRequested && !handled) {
                             setStatus(
-                                `Posting ${index + 1} of ` +
+                                `${isInvite ? 'Inviting' : 'Posting'} ` +
+                                `${index + 1} of ` +
                                 `${selectedFriends.length}: ` +
                                 `${friend.name}...`
                             );
 
                             try {
-                                await postProfileComment(
-                                    friend,
-                                    comment,
-                                    sessionid
-                                );
-                                posted += 1;
+                                if (isInvite) {
+                                    const result = await inviteFriendToGroup(
+                                        friend,
+                                        selectedGroup.groupId,
+                                        sessionid
+                                    );
+
+                                    if (result.duplicate) {
+                                        skipped += 1;
+                                    } else {
+                                        posted += 1;
+                                    }
+                                } else {
+                                    await postProfileComment(
+                                        friend,
+                                        comment,
+                                        sessionid
+                                    );
+                                    posted += 1;
+                                }
                                 handled = true;
                             } catch (err) {
                                 console.error(
-                                    'Steam Page Tools: failed to post profile comment',
+                                    isInvite
+                                        ? 'Steam Page Tools: failed to invite friend to group'
+                                        : 'Steam Page Tools: failed to post profile comment',
                                     friend.steamid,
                                     err
                                 );
 
                                 if (err.cooldown) {
+                                    if (isInvite) {
+                                        failed += 1;
+                                        failedRequest = true;
+                                        handled = true;
+                                        stoppedForCooldown = true;
+                                        stopRequested = true;
+                                        continue;
+                                    }
+
                                     cooldownRetries += 1;
 
                                     if (
@@ -1151,11 +1948,16 @@
                         ) {
                             await waitWithStatus(
                                 failedRequest
-                                    ? FAILURE_DELAY_MS
+                                    ? isInvite
+                                        ? COMMENT_DELAY_MS
+                                        : FAILURE_DELAY_MS
                                     : COMMENT_DELAY_MS,
                                 failedRequest
-                                    ? `Failed on ${friend.name}. ` +
-                                        'Continuing with the next profile in'
+                                    ? isInvite
+                                        ? `Invite failed for ${friend.name}. ` +
+                                            'Continuing with the next friend in'
+                                        : `Failed on ${friend.name}. ` +
+                                            'Continuing with the next profile in'
                                     : 'Waiting before the next profile:'
                             );
                         }
@@ -1163,18 +1965,22 @@
 
                     if (stoppedForCooldown) {
                         setStatus(
-                            'Stopped after Steam kept requesting a cooldown. ' +
-                            'Wait before starting a new run.'
+                            isInvite
+                                ? 'Stopped because Steam requested a cooldown. Wait before starting another invitation run.'
+                                : 'Stopped after Steam kept requesting a cooldown. ' +
+                                    'Wait before starting a new run.'
                         );
                     } else if (stopRequested) {
                         setStatus(
-                            `Stopped. ${posted} posted, ${skipped} skipped, ` +
-                            `${failed} failed.`
+                            isInvite
+                                ? `Stopped. ${posted} invited, ${skipped} skipped, ${failed} failed.`
+                                : `Stopped. ${posted} posted, ${skipped} skipped, ${failed} failed.`
                         );
                     } else {
                         setStatus(
-                            `Finished. ${posted} posted, ${skipped} skipped, ` +
-                            `${failed} failed.`
+                            isInvite
+                                ? `Finished. ${posted} invited, ${skipped} skipped, ${failed} failed.`
+                                : `Finished. ${posted} posted, ${skipped} skipped, ${failed} failed.`
                         );
                     }
                 } finally {
@@ -1187,10 +1993,13 @@
                 }
             }
 
-            textarea.addEventListener('input', () => {
-                characterCount.textContent =
-                    `${textarea.value.length} / ${textarea.maxLength}`;
-            });
+            if (!isInvite) {
+                textarea.addEventListener('input', () => {
+                    characterCount.textContent =
+                        `${textarea.value.length} / ${textarea.maxLength}`;
+                });
+            }
+            groupSelect.addEventListener('change', updateSelectionSummary);
             friendOptions.forEach((option) => {
                 option.checkbox.addEventListener('change', () => {
                     if (option.checkbox.checked) {
@@ -1227,7 +2036,7 @@
             document.addEventListener('keydown', onKeyDown);
 
             applyFriendFilter();
-            textarea.focus();
+            (isInvite ? groupSelect : textarea).focus();
         }
 
         function injectFriendsCommentStyles() {
@@ -1251,7 +2060,8 @@
                     margin-right: 0 !important;
                 }
 
-                #spt-friends-comment-button {
+                #spt-friends-comment-button,
+                #spt-friends-invite-button {
                     flex: 0 0 auto;
                 }
 
@@ -1467,6 +2277,40 @@
                 .spt-friends-selector-row[hidden],
                 .spt-friends-selector-empty[hidden] {
                     display: none;
+                }
+
+                .spt-friends-group-control {
+                    display: grid;
+                    gap: 6px;
+                    margin-top: 14px;
+                    color: #c7d5e0;
+                    font-size: 12px;
+                }
+
+                .spt-friends-group-control[hidden] {
+                    display: none;
+                }
+
+                .spt-friends-group-select {
+                    box-sizing: border-box;
+                    width: 100%;
+                    min-height: 32px;
+                    padding: 5px 8px;
+                    color: #d6d7d8;
+                    background: #222b35;
+                    border: 1px solid #000000;
+                    border-radius: 2px;
+                    box-shadow: inset 0 0 4px #000000;
+                    font: 13px/1.4 "Motiva Sans", Arial, sans-serif;
+                }
+
+                .spt-friends-group-select:focus {
+                    border-color: #67c1f1;
+                    outline: 0;
+                }
+
+                .spt-friends-group-select:disabled {
+                    opacity: 0.65;
                 }
 
                 #spt-friends-comment-text {
@@ -4772,5 +5616,1697 @@
         }
 
         button.addEventListener('click', clearWishlist);
+    }
+
+    // Market page active listings tools: bulk removal and price editing (cancel & relist).
+    function initMarketTools() {
+        if (!/^\/market\/?$/i.test(location.pathname)) {
+            return;
+        }
+
+        const selectedListings = new Map();
+        let busy = false;
+        let observer = null;
+        let scanTimer = null;
+        let syncScheduled = false;
+
+        function scheduleSync() {
+            if (syncScheduled || busy) {
+                return;
+            }
+            syncScheduled = true;
+            const runner = typeof window.requestAnimationFrame === 'function'
+                ? (fn) => window.requestAnimationFrame(fn)
+                : (fn) => setTimeout(fn, 16);
+            runner(() => {
+                syncScheduled = false;
+                syncListings();
+            });
+        }
+
+        injectMarketStyles();
+
+        function getOwnerSteamId() {
+            const pageSteamId = String(
+                window.g_steamID ||
+                window.UserYou?.strSteamId ||
+                window.g_ActiveUser?.strSteamId ||
+                ''
+            );
+            if (/^\d{17}$/.test(pageSteamId)) {
+                return pageSteamId;
+            }
+            const match = document.cookie.match(/(?:^|;\s*)steamLoginSecure=(\d{17})/);
+            return match ? match[1] : '';
+        }
+
+        function getWalletData() {
+            const wallet = window.g_rgWalletInfo || {};
+            const currencyCode = String(wallet.wallet_currency_code || 'USD').toUpperCase();
+            const parseBps = (val, fallback) => {
+                const num = Number(val);
+                return Number.isFinite(num) && num >= 0 ? Math.round(num * 10000) : fallback;
+            };
+            const feeConfig = {
+                steamFeeBps: parseBps(wallet.wallet_fee_percent, 500),
+                publisherFeeBps: parseBps(wallet.wallet_publisher_fee_percent_default, 1000),
+                steamFeeMinimumMinor: Number(wallet.wallet_fee_minimum) || 1,
+                publisherFeeMinimumMinor: Number(wallet.wallet_publisher_fee_minimum) || 1,
+                steamFeeBaseMinor: Number(wallet.wallet_fee_base) || 0,
+                marketMinimumMinor: Number(wallet.wallet_market_minimum) || 1,
+            };
+
+            function calculateBuyerTotal(sellerNetMinor, publisherFeeBps = feeConfig.publisherFeeBps) {
+                if (!Number.isSafeInteger(sellerNetMinor) || sellerNetMinor <= 0) {
+                    return 0;
+                }
+                const steamFee = Math.max(
+                    feeConfig.steamFeeMinimumMinor,
+                    Math.floor((sellerNetMinor * feeConfig.steamFeeBps) / 10000)
+                ) + feeConfig.steamFeeBaseMinor;
+                const pubFee = publisherFeeBps > 0
+                    ? Math.max(
+                        feeConfig.publisherFeeMinimumMinor,
+                        Math.floor((sellerNetMinor * publisherFeeBps) / 10000)
+                    )
+                    : 0;
+                return sellerNetMinor + steamFee + pubFee;
+            }
+
+            function calculateSellerNet(buyerTotalMinor, publisherFeeBps = feeConfig.publisherFeeBps) {
+                if (!Number.isSafeInteger(buyerTotalMinor) || buyerTotalMinor <= 0) {
+                    return 0;
+                }
+                let low = 1;
+                let high = buyerTotalMinor;
+                let bestNet = 1;
+                while (low <= high) {
+                    const mid = low + Math.floor((high - low) / 2);
+                    const buyer = calculateBuyerTotal(mid, publisherFeeBps);
+                    if (buyer <= buyerTotalMinor) {
+                        bestNet = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                return bestNet;
+            }
+
+            function formatMinor(minor) {
+                if (!Number.isSafeInteger(minor) || minor < 0) {
+                    return '--';
+                }
+                try {
+                    return new Intl.NumberFormat(undefined, {
+                        style: 'currency',
+                        currency: currencyCode,
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                    }).format(minor / 100);
+                } catch {
+                    return (minor / 100).toFixed(2) + ' ' + currencyCode;
+                }
+            }
+
+            return {
+                calculateBuyerTotal,
+                calculateSellerNet,
+                currencyCode,
+                feeConfig,
+                formatMinor,
+            };
+        }
+
+        function parseInputToMinor(value) {
+            const str = String(value || '').trim();
+            const tokenMatch = str.match(/\d+(?:[.,]\d{1,2})?/);
+            if (!tokenMatch) {
+                return null;
+            }
+            const clean = tokenMatch[0].replace(',', '.');
+            const parts = clean.split('.');
+            const whole = Number(parts[0]);
+            const fraction = (parts[1] || '').padEnd(2, '0');
+            const minor = whole * 100 + Number(fraction);
+            return Number.isSafeInteger(minor) && minor > 0 ? minor : null;
+        }
+
+        function minorToInput(minor) {
+            if (!Number.isSafeInteger(minor) || minor <= 0) {
+                return '';
+            }
+            const whole = Math.floor(minor / 100);
+            const fraction = String(minor % 100).padStart(2, '0');
+            return `${whole}.${fraction}`;
+        }
+
+        function extractListingData(row) {
+            if (row._sptListingData) {
+                return row._sptListingData;
+            }
+
+            const removeLink = row.querySelector(
+                'a[href*="MarketListing"], a[onclick*="MarketListing"], a[href*="removelisting"], a[onclick*="removelisting"]'
+            );
+            const linkStr = removeLink
+                ? (removeLink.getAttribute('href') || removeLink.getAttribute('onclick') || '')
+                : '';
+            const match = linkStr.match(
+                /(?:RemoveMarketListing|CancelMarketListingConfirmation)\s*\(\s*['"]?([^'",]+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/i
+            );
+
+            let listingId = '';
+            if (match && match[2]) {
+                listingId = match[2];
+            } else {
+                const idMatch = row.id?.match(/^(?:mylisting|listing|myholdlisting)?_?(\d+)$/i) || row.id?.match(/\d+/);
+                if (idMatch) {
+                    listingId = idMatch[1] || idMatch[0];
+                }
+            }
+
+            if (!listingId) {
+                return null;
+            }
+
+            if (!row.id) {
+                row.id = `mylisting_${listingId}`;
+            }
+
+            let appId = '';
+            let contextId = '';
+            let assetId = '';
+
+            if (match) {
+                appId = match[3];
+                contextId = match[4];
+                assetId = match[5];
+            }
+
+            const nameEl = row.querySelector('.market_listing_item_name, [id$="_name"]');
+            const name = nameEl ? nameEl.textContent.trim() : `Listing ${listingId}`;
+
+            const gameEl = row.querySelector('.market_listing_game_name');
+            const gameName = gameEl ? gameEl.textContent.trim() : '';
+
+            const priceEl = row.querySelector(
+                '.market_listing_price, span[id$="_price"], .market_listing_my_price'
+            );
+            const priceText = priceEl ? priceEl.textContent.trim() : '';
+            const parsedMinor = parseInputToMinor(priceText) || 0;
+
+            const asset = (appId && contextId && assetId && window.g_rgAssets?.[appId]?.[contextId]?.[assetId]) || null;
+            const iconHash = asset?.icon_url || '';
+            let iconUrl = iconHash && /^[A-Za-z0-9_-]+$/.test(iconHash)
+                ? `${STEAM_ICON_ORIGIN}${iconHash}/64fx64f`
+                : '';
+            if (!iconUrl) {
+                const imgEl = row.querySelector('.market_listing_item_img, img[src*="economy/image"]');
+                if (imgEl && imgEl.src) {
+                    iconUrl = imgEl.src;
+                }
+            }
+
+            const classId = String(asset?.classid || '');
+            const instanceId = String(asset?.instanceid || '0');
+            const marketHashName = String(asset?.market_hash_name || asset?.name || name);
+
+            const data = {
+                appId,
+                asset,
+                assetId,
+                classId,
+                contextId,
+                currentPriceMinor: parsedMinor,
+                gameName,
+                iconUrl,
+                instanceId,
+                listingId,
+                marketHashName,
+                name,
+                priceText,
+                row,
+            };
+
+            row._sptListingData = data;
+            return data;
+        }
+
+        function decorateRow(listing) {
+            const image = listing.row.querySelector(
+                '.market_listing_item_img, img[src*="economy/image"]'
+            );
+            const imageBlock = listing.row.querySelector(
+                '.market_listing_item_img_container'
+            ) || image?.parentElement;
+
+            function positionCheckbox(container) {
+                if (!imageBlock) {
+                    return;
+                }
+
+                const rowRect = listing.row.getBoundingClientRect();
+                const imageRect = imageBlock.getBoundingClientRect();
+                const checkboxSize = 16;
+
+                container.style.left =
+                    `${imageRect.left - rowRect.left - checkboxSize - 4}px`;
+                container.style.top =
+                    `${imageRect.top - rowRect.top +
+                        (imageRect.height - checkboxSize) / 2}px`;
+            }
+
+            listing.row.classList.add('spt-market-checkbox-positioning');
+
+            if (listing.row.dataset.sptDecorated === 'true') {
+                const existingCb = listing.row.querySelector('.spt-market-row-checkbox');
+                if (existingCb) {
+                    const shouldBeChecked = selectedListings.has(listing.listingId);
+                    if (existingCb.checked !== shouldBeChecked) {
+                        existingCb.checked = shouldBeChecked;
+                    }
+
+                    const container = existingCb.closest(
+                        '.spt-market-checkbox-container'
+                    );
+
+                    if (container && container.parentElement !== listing.row) {
+                        listing.row.appendChild(container);
+                    }
+
+                    if (container) {
+                        positionCheckbox(container);
+                    }
+                }
+                return;
+            }
+
+            listing.row.dataset.sptDecorated = 'true';
+
+            const container = document.createElement('div');
+            container.className = 'spt-market-checkbox-container';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'spt-market-row-checkbox';
+            checkbox.dataset.listingId = listing.listingId;
+            checkbox.checked = selectedListings.has(listing.listingId);
+            checkbox.setAttribute('aria-label', `Select ${listing.name}`);
+
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    selectedListings.set(listing.listingId, listing);
+                } else {
+                    selectedListings.delete(listing.listingId);
+                }
+                updateToolbar();
+            });
+            container.appendChild(checkbox);
+            listing.row.appendChild(container);
+            positionCheckbox(container);
+        }
+
+        function getVisibleListings() {
+            const rows = document.querySelectorAll(
+                '#tabContentsMyListings .market_listing_row, ' +
+                '.my_listing_section .market_listing_row, ' +
+                '#tabContentsMyActiveMarketListingsRows .market_listing_row, ' +
+                '#tabContentsMyActiveMarketListingsTable .market_listing_row'
+            );
+            const list = [];
+            const seenIds = new Set();
+            for (const row of rows) {
+                if (
+                    row.classList?.contains('market_listing_header_row') ||
+                    row.classList?.contains('market_listing_table_header') ||
+                    row.classList?.contains('market_listing_buyorder') ||
+                    row.id?.startsWith('mybuyorder_')
+                ) {
+                    continue;
+                }
+                const data = extractListingData(row);
+                if (data && data.listingId && !seenIds.has(data.listingId)) {
+                    seenIds.add(data.listingId);
+                    list.push(data);
+                }
+            }
+            return list;
+        }
+
+        function syncCheckboxStates() {
+            const cbs = document.querySelectorAll('.spt-market-row-checkbox');
+            for (const cb of cbs) {
+                const shouldBeChecked = selectedListings.has(cb.dataset.listingId);
+                if (cb.checked !== shouldBeChecked) {
+                    cb.checked = shouldBeChecked;
+                }
+            }
+        }
+
+        function setToolbarStatus(msg) {
+            const statusEl = document.getElementById('spt-market-status-msg');
+            if (statusEl && statusEl.textContent !== msg) {
+                statusEl.textContent = msg;
+            }
+        }
+
+        function ensureToolbar() {
+            let toolbar = document.getElementById('spt-market-toolbar');
+            if (toolbar) {
+                return toolbar;
+            }
+
+            const targetSection =
+                document.querySelector('#tabContentsMyListings .my_listing_section') ||
+                document.querySelector('#tabContentsMyActiveMarketListingsTable') ||
+                document.querySelector('#tabContentsMyActiveMarketListingsRows') ||
+                document.querySelector('#tabContentsMyListings');
+
+            if (!targetSection) {
+                return null;
+            }
+
+            toolbar = document.createElement('div');
+            toolbar.id = 'spt-market-toolbar';
+            toolbar.className = 'spt-market-toolbar';
+
+            const left = document.createElement('div');
+            left.className = 'spt-market-toolbar-left';
+
+            const selectAllLabel = document.createElement('label');
+            selectAllLabel.className = 'spt-market-select-all-label';
+
+            const selectAllCb = document.createElement('input');
+            selectAllCb.type = 'checkbox';
+            selectAllCb.id = 'spt-market-select-all-checkbox';
+            selectAllCb.setAttribute('aria-label', 'Select all visible listings');
+
+            selectAllCb.addEventListener('change', () => {
+                const rows = getVisibleListings();
+                if (selectAllCb.checked) {
+                    for (const item of rows) {
+                        selectedListings.set(item.listingId, item);
+                    }
+                } else {
+                    for (const item of rows) {
+                        selectedListings.delete(item.listingId);
+                    }
+                }
+                syncCheckboxStates();
+                updateToolbar();
+            });
+
+            const selectAllText = document.createElement('span');
+            selectAllText.textContent = 'Select all shown';
+
+            selectAllLabel.appendChild(selectAllCb);
+            selectAllLabel.appendChild(selectAllText);
+
+            const countBadge = document.createElement('span');
+            countBadge.id = 'spt-market-selected-count';
+            countBadge.className = 'spt-market-count-badge';
+            countBadge.textContent = '0 selected';
+
+            left.appendChild(selectAllLabel);
+            left.appendChild(countBadge);
+
+            const right = document.createElement('div');
+            right.className = 'spt-market-toolbar-right';
+
+            const editPriceBtn = document.createElement('button');
+            editPriceBtn.type = 'button';
+            editPriceBtn.id = 'spt-market-edit-price-btn';
+            editPriceBtn.className = 'spt-market-btn spt-market-btn-primary';
+            editPriceBtn.textContent = 'Edit price';
+            editPriceBtn.disabled = true;
+            editPriceBtn.addEventListener('click', openBulkRelistModal);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.id = 'spt-market-remove-btn';
+            removeBtn.className = 'spt-market-btn spt-market-btn-danger';
+            removeBtn.textContent = 'Remove from Market';
+            removeBtn.disabled = true;
+            removeBtn.addEventListener('click', promptBulkRemove);
+
+            const clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.id = 'spt-market-clear-btn';
+            clearBtn.className = 'spt-market-btn spt-market-btn-secondary';
+            clearBtn.textContent = 'Clear';
+            clearBtn.style.display = 'none';
+            clearBtn.addEventListener('click', () => {
+                selectedListings.clear();
+                syncCheckboxStates();
+                updateToolbar();
+            });
+
+            right.appendChild(editPriceBtn);
+            right.appendChild(removeBtn);
+            right.appendChild(clearBtn);
+
+            const status = document.createElement('div');
+            status.id = 'spt-market-status-msg';
+            status.className = 'spt-market-status-msg';
+
+            toolbar.appendChild(left);
+            toolbar.appendChild(right);
+            toolbar.appendChild(status);
+
+            targetSection.parentNode.insertBefore(toolbar, targetSection);
+            return toolbar;
+        }
+
+        function updateToolbar() {
+            ensureToolbar();
+            const count = selectedListings.size;
+            const countBadge = document.getElementById('spt-market-selected-count');
+            if (countBadge) {
+                const countText = `${count} selected`;
+                if (countBadge.textContent !== countText) {
+                    countBadge.textContent = countText;
+                }
+                const hasSel = count > 0;
+                if (countBadge.classList.contains('has-selection') !== hasSel) {
+                    countBadge.classList.toggle('has-selection', hasSel);
+                }
+            }
+
+            const editPriceBtn = document.getElementById('spt-market-edit-price-btn');
+            if (editPriceBtn) {
+                const disabled = count === 0 || busy;
+                if (editPriceBtn.disabled !== disabled) {
+                    editPriceBtn.disabled = disabled;
+                }
+                const editText = count > 0 ? `Edit price (${count})` : 'Edit price';
+                if (editPriceBtn.textContent !== editText) {
+                    editPriceBtn.textContent = editText;
+                }
+            }
+
+            const removeBtn = document.getElementById('spt-market-remove-btn');
+            if (removeBtn) {
+                const disabled = count === 0 || busy;
+                if (removeBtn.disabled !== disabled) {
+                    removeBtn.disabled = disabled;
+                }
+                const removeText = count > 0 ? `Remove selected (${count})` : 'Remove from Market';
+                if (removeBtn.textContent !== removeText) {
+                    removeBtn.textContent = removeText;
+                }
+            }
+
+            const clearBtn = document.getElementById('spt-market-clear-btn');
+            if (clearBtn) {
+                const display = count > 0 ? 'inline-block' : 'none';
+                if (clearBtn.style.display !== display) {
+                    clearBtn.style.display = display;
+                }
+                if (clearBtn.disabled !== busy) {
+                    clearBtn.disabled = busy;
+                }
+            }
+
+            const selectAllCb = document.getElementById('spt-market-select-all-checkbox');
+            if (selectAllCb) {
+                const visible = getVisibleListings();
+                const allSelected = visible.length > 0 && visible.every((item) => selectedListings.has(item.listingId));
+                if (selectAllCb.checked !== allSelected) {
+                    selectAllCb.checked = allSelected;
+                }
+                const disabled = busy || visible.length === 0;
+                if (selectAllCb.disabled !== disabled) {
+                    selectAllCb.disabled = disabled;
+                }
+            }
+        }
+
+        function syncListings() {
+            if (busy) {
+                return;
+            }
+            const visible = getVisibleListings();
+            if (visible.length === 0) {
+                if (document.getElementById('spt-market-toolbar')) {
+                    updateToolbar();
+                }
+                return;
+            }
+            ensureToolbar();
+            for (const item of visible) {
+                decorateRow(item);
+            }
+            updateToolbar();
+        }
+
+        function createProgressModal(titleText) {
+            const overlay = document.createElement('div');
+            overlay.className = 'spt-market-modal-overlay';
+
+            const modal = document.createElement('div');
+            modal.className = 'spt-market-modal spt-market-progress-modal';
+
+            const header = document.createElement('div');
+            header.className = 'spt-market-modal-header';
+            const title = document.createElement('h3');
+            title.textContent = titleText;
+            header.appendChild(title);
+
+            const body = document.createElement('div');
+            body.className = 'spt-market-modal-body';
+
+            const statusText = document.createElement('div');
+            statusText.className = 'spt-market-progress-status';
+            statusText.textContent = 'Starting...';
+
+            const progressTrack = document.createElement('div');
+            progressTrack.className = 'spt-market-progress-track';
+
+            const progressFill = document.createElement('div');
+            progressFill.className = 'spt-market-progress-fill';
+            progressFill.style.width = '0%';
+            progressTrack.appendChild(progressFill);
+
+            body.appendChild(statusText);
+            body.appendChild(progressTrack);
+
+            const footer = document.createElement('div');
+            footer.className = 'spt-market-modal-footer';
+
+            const stopBtn = document.createElement('button');
+            stopBtn.type = 'button';
+            stopBtn.className = 'spt-market-btn spt-market-btn-secondary';
+            stopBtn.textContent = 'Stop after current item';
+
+            let stopCallback = null;
+            stopBtn.addEventListener('click', () => {
+                stopBtn.disabled = true;
+                stopBtn.textContent = 'Stopping...';
+                if (stopCallback) {
+                    stopCallback();
+                }
+            });
+
+            footer.appendChild(stopBtn);
+            modal.appendChild(header);
+            modal.appendChild(body);
+            modal.appendChild(footer);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            return {
+                close() {
+                    overlay.remove();
+                },
+                onStop(fn) {
+                    stopCallback = fn;
+                },
+                update(msg, current, total) {
+                    statusText.textContent = msg;
+                    if (total > 0) {
+                        const pct = Math.min(100, Math.round((current / total) * 100));
+                        progressFill.style.width = `${pct}%`;
+                    }
+                },
+            };
+        }
+
+        async function promptBulkRemove() {
+            if (busy || !selectedListings.size) {
+                return;
+            }
+            const sessionId = getSessionId();
+            if (!sessionId) {
+                window.alert('Could not verify your Steam session. Please reload the page.');
+                return;
+            }
+            const items = [...selectedListings.values()];
+            const confirmed = window.confirm(
+                `Remove ${items.length} selected listing(s) from the Steam Community Market?\n\n` +
+                'The items will be delisted and returned to your Steam inventory.'
+            );
+            if (!confirmed) {
+                return;
+            }
+
+            busy = true;
+            updateToolbar();
+
+            const progress = createProgressModal('Removing Market Listings');
+            let stopped = false;
+            progress.onStop(() => {
+                stopped = true;
+            });
+
+            let removed = 0;
+            let failed = 0;
+
+            for (let i = 0; i < items.length; i += 1) {
+                if (stopped) {
+                    break;
+                }
+                const item = items[i];
+                progress.update(
+                    `Removing (${i + 1}/${items.length}): ${item.name}`,
+                    i + 1,
+                    items.length
+                );
+
+                try {
+                    const url = requirePinnedSteamUrl(
+                        `/market/removelisting/${item.listingId}`,
+                        STEAM_COMMUNITY_ORIGIN
+                    );
+                    const body = new URLSearchParams({ sessionid: sessionId });
+
+                    const response = await fetch(url.toString(), {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        },
+                        body: body.toString(),
+                    });
+                    requirePinnedSteamResponseUrl(
+                        response,
+                        STEAM_COMMUNITY_ORIGIN,
+                        url.toString()
+                    );
+
+                    if (!response.ok) {
+                        if (response.status === 429) {
+                            progress.update(
+                                'Rate limited by Steam. Waiting 10 seconds before continuing...',
+                                i + 1,
+                                items.length
+                            );
+                            await sleep(10000);
+                        }
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    removed += 1;
+                    selectedListings.delete(item.listingId);
+
+                    const row = item.row || document.getElementById(`mylisting_${item.listingId}`);
+                    if (row) {
+                        row.remove();
+                    }
+
+                    const countEl = document.getElementById('my_market_activelistings_number');
+                    if (countEl) {
+                        const current = parseInt(countEl.textContent, 10) || 0;
+                        countEl.textContent = String(Math.max(0, current - 1));
+                    }
+                } catch (err) {
+                    failed += 1;
+                    console.warn('Steam Page Tools: failed to remove listing', item.listingId, err);
+                }
+
+                if (i < items.length - 1 && !stopped) {
+                    await sleep(800);
+                }
+            }
+
+            progress.close();
+            busy = false;
+            updateToolbar();
+            setToolbarStatus(
+                stopped
+                    ? `Stopped. Removed ${removed} listing(s)${failed ? `, ${failed} failed` : ''}.`
+                    : `Finished. Removed ${removed} listing(s)${failed ? `, ${failed} failed` : ''}.`
+            );
+        }
+
+        function openBulkRelistModal() {
+            if (busy || !selectedListings.size) {
+                return;
+            }
+            const items = [...selectedListings.values()];
+            const walletData = getWalletData();
+
+            const proposedPrices = new Map();
+            for (const item of items) {
+                const initialBuyer = item.currentPriceMinor > 0 ? item.currentPriceMinor : 3;
+                const net = walletData.calculateSellerNet(initialBuyer);
+                proposedPrices.set(item.listingId, {
+                    buyerMinor: initialBuyer,
+                    netMinor: net,
+                });
+            }
+
+            const overlay = document.createElement('div');
+            overlay.className = 'spt-market-modal-overlay';
+
+            const modal = document.createElement('div');
+            modal.className = 'spt-market-modal';
+
+            const header = document.createElement('div');
+            header.className = 'spt-market-modal-header';
+            const title = document.createElement('h3');
+            title.textContent = `Edit Prices & Relist (${items.length} items)`;
+            header.appendChild(title);
+
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'spt-market-modal-close';
+            closeBtn.textContent = '×';
+            closeBtn.addEventListener('click', () => overlay.remove());
+            header.appendChild(closeBtn);
+
+            const body = document.createElement('div');
+            body.className = 'spt-market-modal-body';
+
+            const notice = document.createElement('div');
+            notice.className = 'spt-market-modal-notice';
+            notice.textContent =
+                'Steam requires delisting an item before listing it at a new price. ' +
+                'Steam Page Tools will cancel the current listing, locate the returned item in your inventory, ' +
+                'and list it with your specified price.';
+            body.appendChild(notice);
+
+            const bulkBar = document.createElement('div');
+            bulkBar.className = 'spt-market-bulk-bar';
+
+            const setAllLabel = document.createElement('span');
+            setAllLabel.textContent = 'Set all buyer prices:';
+
+            const setAllInput = document.createElement('input');
+            setAllInput.type = 'text';
+            setAllInput.className = 'spt-market-bulk-input';
+            setAllInput.placeholder = 'e.g. 1.25';
+
+            const setAllBtn = document.createElement('button');
+            setAllBtn.type = 'button';
+            setAllBtn.className = 'spt-market-btn spt-market-btn-secondary';
+            setAllBtn.textContent = 'Apply to all';
+
+            const adjustLabel = document.createElement('span');
+            adjustLabel.textContent = 'Adjust all (%):';
+
+            const adjustInput = document.createElement('input');
+            adjustInput.type = 'text';
+            adjustInput.className = 'spt-market-bulk-input spt-market-input-small';
+            adjustInput.placeholder = '-10';
+
+            const adjustBtn = document.createElement('button');
+            adjustBtn.type = 'button';
+            adjustBtn.className = 'spt-market-btn spt-market-btn-secondary';
+            adjustBtn.textContent = 'Apply %';
+
+            bulkBar.appendChild(setAllLabel);
+            bulkBar.appendChild(setAllInput);
+            bulkBar.appendChild(setAllBtn);
+            bulkBar.appendChild(adjustLabel);
+            bulkBar.appendChild(adjustInput);
+            bulkBar.appendChild(adjustBtn);
+            body.appendChild(bulkBar);
+
+            const table = document.createElement('div');
+            table.className = 'spt-market-relist-table';
+
+            const thead = document.createElement('div');
+            thead.className = 'spt-market-relist-header';
+
+            const thItem = document.createElement('div');
+            thItem.className = 'col-item';
+            thItem.textContent = 'Item';
+
+            const thCurr = document.createElement('div');
+            thCurr.className = 'col-current';
+            thCurr.textContent = 'Current Price';
+
+            const thNew = document.createElement('div');
+            thNew.className = 'col-new';
+            thNew.textContent = 'New Price (Buyer)';
+
+            const thRec = document.createElement('div');
+            thRec.className = 'col-receive';
+            thRec.textContent = 'You Receive';
+
+            thead.appendChild(thItem);
+            thead.appendChild(thCurr);
+            thead.appendChild(thNew);
+            thead.appendChild(thRec);
+            table.appendChild(thead);
+
+            const rowsContainer = document.createElement('div');
+            rowsContainer.className = 'spt-market-relist-rows';
+
+            const rowElements = new Map();
+
+            function updateRowCalculation(listingId, buyerMinor) {
+                const netMinor = walletData.calculateSellerNet(buyerMinor);
+                proposedPrices.set(listingId, { buyerMinor, netMinor });
+                const rowEl = rowElements.get(listingId);
+                if (rowEl) {
+                    const receiveEl = rowEl.querySelector('.col-receive');
+                    if (receiveEl) {
+                        receiveEl.textContent = walletData.formatMinor(netMinor);
+                    }
+                }
+                updateTotalsSummary();
+            }
+
+            for (const item of items) {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'spt-market-relist-row';
+
+                const colItem = document.createElement('div');
+                colItem.className = 'col-item';
+
+                if (item.iconUrl) {
+                    const img = document.createElement('img');
+                    img.src = item.iconUrl;
+                    img.className = 'spt-market-relist-icon';
+                    img.alt = '';
+                    colItem.appendChild(img);
+                }
+
+                const itemNames = document.createElement('div');
+                itemNames.className = 'spt-market-relist-names';
+                const itemName = document.createElement('div');
+                itemName.className = 'spt-market-relist-name';
+                itemName.textContent = item.name;
+                const gameName = document.createElement('div');
+                gameName.className = 'spt-market-relist-game';
+                gameName.textContent = item.gameName;
+                itemNames.appendChild(itemName);
+                if (item.gameName) {
+                    itemNames.appendChild(gameName);
+                }
+                colItem.appendChild(itemNames);
+
+                const colCurrent = document.createElement('div');
+                colCurrent.className = 'col-current';
+                colCurrent.textContent = item.priceText || walletData.formatMinor(item.currentPriceMinor);
+
+                const colNew = document.createElement('div');
+                colNew.className = 'col-new';
+
+                const priceInput = document.createElement('input');
+                priceInput.type = 'text';
+                priceInput.className = 'spt-market-price-input';
+                priceInput.value = minorToInput(proposedPrices.get(item.listingId).buyerMinor);
+
+                priceInput.addEventListener('input', () => {
+                    const parsed = parseInputToMinor(priceInput.value);
+                    if (parsed && parsed >= 3) {
+                        priceInput.classList.remove('spt-input-error');
+                        updateRowCalculation(item.listingId, parsed);
+                    } else {
+                        priceInput.classList.add('spt-input-error');
+                    }
+                });
+                colNew.appendChild(priceInput);
+
+                const colReceive = document.createElement('div');
+                colReceive.className = 'col-receive';
+                colReceive.textContent = walletData.formatMinor(proposedPrices.get(item.listingId).netMinor);
+
+                rowEl.appendChild(colItem);
+                rowEl.appendChild(colCurrent);
+                rowEl.appendChild(colNew);
+                rowEl.appendChild(colReceive);
+
+                rowsContainer.appendChild(rowEl);
+                rowElements.set(item.listingId, rowEl);
+            }
+
+            table.appendChild(rowsContainer);
+            body.appendChild(table);
+
+            setAllBtn.addEventListener('click', () => {
+                const parsed = parseInputToMinor(setAllInput.value);
+                if (!parsed || parsed < 3) {
+                    window.alert('Please enter a valid price (minimum $0.03 equivalent).');
+                    return;
+                }
+                for (const item of items) {
+                    const rowEl = rowElements.get(item.listingId);
+                    if (rowEl) {
+                        const input = rowEl.querySelector('.spt-market-price-input');
+                        if (input) {
+                            input.value = minorToInput(parsed);
+                            input.classList.remove('spt-input-error');
+                        }
+                    }
+                    updateRowCalculation(item.listingId, parsed);
+                }
+            });
+
+            adjustBtn.addEventListener('click', () => {
+                const pct = parseFloat(adjustInput.value.replace(',', '.'));
+                if (Number.isNaN(pct)) {
+                    window.alert('Please enter a valid percentage adjustment, e.g. -10 or +5');
+                    return;
+                }
+                const factor = 1 + (pct / 100);
+                for (const item of items) {
+                    const base = item.currentPriceMinor > 0 ? item.currentPriceMinor : 3;
+                    const adjusted = Math.max(3, Math.round(base * factor));
+                    const rowEl = rowElements.get(item.listingId);
+                    if (rowEl) {
+                        const input = rowEl.querySelector('.spt-market-price-input');
+                        if (input) {
+                            input.value = minorToInput(adjusted);
+                            input.classList.remove('spt-input-error');
+                        }
+                    }
+                    updateRowCalculation(item.listingId, adjusted);
+                }
+            });
+
+            const footer = document.createElement('div');
+            footer.className = 'spt-market-modal-footer';
+
+            const summary = document.createElement('div');
+            summary.className = 'spt-market-modal-summary';
+
+            function updateTotalsSummary() {
+                let totalBuyer = 0;
+                let totalNet = 0;
+                for (const { buyerMinor, netMinor } of proposedPrices.values()) {
+                    totalBuyer += buyerMinor;
+                    totalNet += netMinor;
+                }
+                summary.textContent =
+                    `Total buyer: ${walletData.formatMinor(totalBuyer)} · ` +
+                    `Est. proceeds: ${walletData.formatMinor(totalNet)}`;
+            }
+            updateTotalsSummary();
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'spt-market-btn spt-market-btn-secondary';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', () => overlay.remove());
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className = 'spt-market-btn spt-market-btn-primary';
+            confirmBtn.textContent = `Relist ${items.length} item(s)`;
+
+            confirmBtn.addEventListener('click', async () => {
+                for (const [, { buyerMinor, netMinor }] of proposedPrices.entries()) {
+                    if (!buyerMinor || buyerMinor < 3 || !netMinor || netMinor < 1) {
+                        window.alert('Please ensure all items have a valid price of at least $0.03.');
+                        return;
+                    }
+                }
+
+                const confirmed = window.confirm(
+                    `Confirm relisting ${items.length} item(s)?\n\n` +
+                    'Each item will be delisted, resolved in your inventory, and relisted at your new price.'
+                );
+                if (!confirmed) {
+                    return;
+                }
+
+                overlay.remove();
+                await executeBulkRelist(items, proposedPrices);
+            });
+
+            footer.appendChild(summary);
+            footer.appendChild(cancelBtn);
+            footer.appendChild(confirmBtn);
+
+            modal.appendChild(header);
+            modal.appendChild(body);
+            modal.appendChild(footer);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        }
+
+        async function executeBulkRelist(items, proposedPrices) {
+            const sessionId = getSessionId();
+            const ownerSteamId = getOwnerSteamId();
+
+            if (!sessionId || !ownerSteamId) {
+                window.alert('Could not verify your Steam session or account ID. Please reload the page.');
+                return;
+            }
+
+            busy = true;
+            updateToolbar();
+
+            const progress = createProgressModal('Relisting Market Items');
+            let stopped = false;
+            progress.onStop(() => {
+                stopped = true;
+            });
+
+            let relisted = 0;
+            let failed = 0;
+
+            const usedAssetIds = new Set();
+
+            for (let i = 0; i < items.length; i += 1) {
+                if (stopped) {
+                    break;
+                }
+                const item = items[i];
+                const prices = proposedPrices.get(item.listingId);
+                const newNet = prices ? prices.netMinor : 1;
+
+                progress.update(
+                    `(${i + 1}/${items.length}) Step 1/3: Delisting ${item.name}...`,
+                    i + 1,
+                    items.length
+                );
+
+                try {
+                    const removeUrl = requirePinnedSteamUrl(
+                        `/market/removelisting/${item.listingId}`,
+                        STEAM_COMMUNITY_ORIGIN
+                    );
+                    const removeBody = new URLSearchParams({ sessionid: sessionId });
+
+                    const removeRes = await fetch(removeUrl.toString(), {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        },
+                        body: removeBody.toString(),
+                    });
+                    requirePinnedSteamResponseUrl(
+                        removeRes,
+                        STEAM_COMMUNITY_ORIGIN,
+                        removeUrl.toString()
+                    );
+
+                    if (!removeRes.ok) {
+                        if (removeRes.status === 429) {
+                            progress.update(
+                                'Rate limited by Steam. Waiting 10 seconds before continuing...',
+                                i + 1,
+                                items.length
+                            );
+                            await sleep(10000);
+                        }
+                        throw new Error(`Delist failed: HTTP ${removeRes.status}`);
+                    }
+
+                    const row = item.row || document.getElementById(`mylisting_${item.listingId}`);
+                    if (row) {
+                        row.remove();
+                    }
+                    selectedListings.delete(item.listingId);
+
+                    progress.update(
+                        `(${i + 1}/${items.length}) Step 2/3: Finding returned ${item.name} in inventory...`,
+                        i + 1,
+                        items.length
+                    );
+
+                    await sleep(1500);
+
+                    let foundAssetId = null;
+                    for (let attempt = 0; attempt < 3; attempt += 1) {
+                        if (stopped) {
+                            break;
+                        }
+                        try {
+                            const invUrl = requirePinnedSteamUrl(
+                                `/inventory/${ownerSteamId}/${item.appId}/${item.contextId}?count=2000&l=english`,
+                                STEAM_COMMUNITY_ORIGIN
+                            );
+                            const invRes = await fetch(invUrl.toString(), { credentials: 'include' });
+                            requirePinnedSteamResponseUrl(
+                                invRes,
+                                STEAM_COMMUNITY_ORIGIN,
+                                invUrl.toString()
+                            );
+                            if (invRes.ok) {
+                                const invData = await invRes.json();
+                                const assets = Array.isArray(invData?.assets) ? invData.assets : [];
+                                const descriptions = Array.isArray(invData?.descriptions) ? invData.descriptions : [];
+
+                                const descMap = new Map();
+                                for (const d of descriptions) {
+                                    descMap.set(`${d.classid}_${d.instanceid || '0'}`, d);
+                                }
+
+                                for (const a of assets) {
+                                    if (usedAssetIds.has(a.assetid)) {
+                                        continue;
+                                    }
+                                    const key = `${a.classid}_${a.instanceid || '0'}`;
+                                    const desc = descMap.get(key);
+
+                                    const matchesClass = item.classId && String(a.classid) === String(item.classId);
+                                    const matchesHash = desc && (desc.market_hash_name === item.marketHashName || desc.name === item.name);
+
+                                    if ((matchesClass || matchesHash) && desc?.marketable !== 0) {
+                                        foundAssetId = String(a.assetid);
+                                        usedAssetIds.add(foundAssetId);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (invErr) {
+                            console.warn('Inventory fetch error during relist attempt', invErr);
+                        }
+
+                        if (foundAssetId || stopped) {
+                            break;
+                        }
+                        await sleep(1500);
+                    }
+
+                    if (!foundAssetId) {
+                        throw new Error('Item was delisted but could not be located in inventory to relist.');
+                    }
+
+                    progress.update(
+                        `(${i + 1}/${items.length}) Step 3/3: Relisting ${item.name}...`,
+                        i + 1,
+                        items.length
+                    );
+
+                    const sellUrl = requirePinnedSteamUrl(
+                        '/market/sellitem/',
+                        STEAM_COMMUNITY_ORIGIN
+                    );
+                    const sellBody = new URLSearchParams({
+                        amount: '1',
+                        appid: item.appId,
+                        assetid: foundAssetId,
+                        contextid: item.contextId,
+                        price: String(newNet),
+                        sessionid: sessionId,
+                    });
+
+                    const sellRes = await fetch(sellUrl.toString(), {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        },
+                        body: sellBody.toString(),
+                    });
+                    requirePinnedSteamResponseUrl(
+                        sellRes,
+                        STEAM_COMMUNITY_ORIGIN,
+                        sellUrl.toString()
+                    );
+
+                    const sellData = await sellRes.json().catch(() => null);
+
+                    if (!sellRes.ok || !sellData?.success) {
+                        if (sellRes.status === 429) {
+                            progress.update(
+                                'Rate limited by Steam. Waiting 10 seconds before continuing...',
+                                i + 1,
+                                items.length
+                            );
+                            await sleep(10000);
+                        }
+                        const msg = sellData?.message || `HTTP ${sellRes.status}`;
+                        throw new Error(`Relist failed: ${msg}`);
+                    }
+
+                    relisted += 1;
+                } catch (err) {
+                    failed += 1;
+                    console.error('Steam Page Tools: Relisting error for', item.name, err);
+                }
+
+                if (i < items.length - 1 && !stopped) {
+                    await sleep(1500);
+                }
+            }
+
+            progress.close();
+            busy = false;
+            updateToolbar();
+            setToolbarStatus(
+                stopped
+                    ? `Stopped. Relisted ${relisted} item(s)${failed ? `, ${failed} failed` : ''}.`
+                    : `Finished. Relisted ${relisted} item(s)${failed ? `, ${failed} failed` : ''}. Refreshing market page in 2s...`
+            );
+
+            if (relisted > 0) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        }
+
+        function injectMarketStyles() {
+            if (document.getElementById('spt-market-styles')) {
+                return;
+            }
+
+            const style = document.createElement('style');
+            style.id = 'spt-market-styles';
+            style.textContent = `
+                .spt-market-toolbar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    padding: 10px 14px;
+                    margin: 12px 0;
+                    background: #17202d;
+                    border: 1px solid rgba(103, 193, 241, 0.2);
+                    border-radius: 3px;
+                    font: 13px/1.4 "Motiva Sans", Arial, sans-serif;
+                    color: #c6d4df;
+                    box-sizing: border-box;
+                }
+
+                .spt-market-toolbar-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 14px;
+                }
+
+                .spt-market-select-all-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+
+                .spt-market-count-badge {
+                    display: inline-block;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    background: rgba(0, 0, 0, 0.3);
+                    color: #8f98a0;
+                    font-size: 11px;
+                }
+
+                .spt-market-count-badge.has-selection {
+                    background: rgba(103, 193, 241, 0.2);
+                    color: #67c1f1;
+                    font-weight: 600;
+                }
+
+                .spt-market-toolbar-right {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .spt-market-btn {
+                    box-sizing: border-box;
+                    border: 0;
+                    border-radius: 2px;
+                    padding: 6px 14px;
+                    font: 12px/1.4 "Motiva Sans", Arial, sans-serif;
+                    cursor: pointer;
+                    text-decoration: none;
+                    transition: opacity 0.15s, background 0.15s;
+                }
+
+                .spt-market-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+
+                .spt-market-btn-primary {
+                    background: linear-gradient(to bottom, #799905 5%, #536904 95%);
+                    color: #d2efa9;
+                }
+
+                .spt-market-btn-primary:not(:disabled):hover {
+                    background: linear-gradient(to bottom, #a4d007 5%, #6e8c06 95%);
+                    color: #ffffff;
+                }
+
+                .spt-market-btn-danger {
+                    background: linear-gradient(to bottom, #992305 5%, #691504 95%);
+                    color: #efc0a9;
+                }
+
+                .spt-market-btn-danger:not(:disabled):hover {
+                    background: linear-gradient(to bottom, #c0320a 5%, #881e08 95%);
+                    color: #ffffff;
+                }
+
+                .spt-market-btn-secondary {
+                    background: rgba(255, 255, 255, 0.08);
+                    color: #c6d4df;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                }
+
+                .spt-market-btn-secondary:not(:disabled):hover {
+                    background: rgba(255, 255, 255, 0.16);
+                    color: #ffffff;
+                }
+
+                .spt-market-status-msg {
+                    width: 100%;
+                    font-size: 12px;
+                    color: #8f98a0;
+                    min-height: 16px;
+                }
+
+                .spt-market-checkbox-container {
+                    position: absolute;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 16px;
+                    height: 16px;
+                    padding: 0;
+                    z-index: 1;
+                }
+
+                .market_listing_row.spt-market-checkbox-positioning {
+                    position: relative;
+                    overflow: visible !important;
+                }
+
+                .spt-market-row-checkbox {
+                    width: 16px;
+                    height: 16px;
+                    cursor: pointer;
+                    margin: 0;
+                }
+
+                .spt-market-modal-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.82);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                    font-family: "Motiva Sans", Arial, sans-serif;
+                }
+
+                .spt-market-modal {
+                    background: #1b2838;
+                    border: 1px solid #67c1f1;
+                    border-radius: 4px;
+                    box-shadow: 0 0 24px rgba(0, 0, 0, 0.85);
+                    width: 90%;
+                    max-width: 720px;
+                    max-height: 85vh;
+                    display: flex;
+                    flex-direction: column;
+                    box-sizing: border-box;
+                    color: #c6d4df;
+                }
+
+                .spt-market-modal-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 12px 18px;
+                    background: linear-gradient(to right, #1b2838, #2a475e);
+                    border-bottom: 1px solid rgba(103, 193, 241, 0.2);
+                }
+
+                .spt-market-modal-header h3 {
+                    margin: 0;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+
+                .spt-market-modal-close {
+                    background: transparent;
+                    border: 0;
+                    color: #8f98a0;
+                    font-size: 22px;
+                    cursor: pointer;
+                    line-height: 1;
+                    padding: 0 4px;
+                }
+
+                .spt-market-modal-close:hover {
+                    color: #ffffff;
+                }
+
+                .spt-market-modal-body {
+                    padding: 16px 18px;
+                    overflow-y: auto;
+                    flex: 1 1 auto;
+                }
+
+                .spt-market-modal-notice {
+                    font-size: 12px;
+                    line-height: 1.5;
+                    padding: 8px 12px;
+                    background: rgba(103, 193, 241, 0.1);
+                    border-left: 3px solid #67c1f1;
+                    margin-bottom: 14px;
+                    color: #acb9c4;
+                }
+
+                .spt-market-bulk-bar {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    flex-wrap: wrap;
+                    padding: 10px;
+                    background: #121a24;
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border-radius: 3px;
+                    margin-bottom: 14px;
+                    font-size: 12px;
+                }
+
+                .spt-market-bulk-input {
+                    width: 70px;
+                    height: 26px;
+                    padding: 2px 6px;
+                    background: #222b35;
+                    border: 1px solid #000000;
+                    color: #ffffff;
+                    border-radius: 2px;
+                    box-sizing: border-box;
+                    font-size: 12px;
+                }
+
+                .spt-market-input-small {
+                    width: 50px;
+                }
+
+                .spt-market-relist-table {
+                    border: 1px solid rgba(103, 193, 241, 0.1);
+                    border-radius: 3px;
+                    overflow: hidden;
+                    font-size: 12px;
+                }
+
+                .spt-market-relist-header {
+                    display: grid;
+                    grid-template-columns: minmax(0, 2fr) 100px 110px 100px;
+                    gap: 8px;
+                    align-items: center;
+                    padding: 8px 10px;
+                    background: #16202b;
+                    font-weight: 600;
+                    color: #8f98a0;
+                    border-bottom: 1px solid rgba(103, 193, 241, 0.15);
+                }
+
+                .spt-market-relist-rows {
+                    max-height: 280px;
+                    overflow-y: auto;
+                }
+
+                .spt-market-relist-row {
+                    display: grid;
+                    grid-template-columns: minmax(0, 2fr) 100px 110px 100px;
+                    gap: 8px;
+                    align-items: center;
+                    padding: 8px 10px;
+                    background: rgba(27, 40, 56, 0.6);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+                }
+
+                .spt-market-relist-row:nth-child(even) {
+                    background: rgba(34, 49, 65, 0.6);
+                }
+
+                .col-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    overflow: hidden;
+                }
+
+                .spt-market-relist-icon {
+                    width: 32px;
+                    height: 32px;
+                    flex: 0 0 32px;
+                    object-fit: contain;
+                }
+
+                .spt-market-relist-names {
+                    overflow: hidden;
+                    min-width: 0;
+                }
+
+                .spt-market-relist-name {
+                    color: #ffffff;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .spt-market-relist-game {
+                    font-size: 11px;
+                    color: #8f98a0;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .col-current {
+                    color: #8f98a0;
+                }
+
+                .col-new {
+                    display: flex;
+                    align-items: center;
+                }
+
+                .spt-market-price-input {
+                    width: 80px;
+                    height: 26px;
+                    padding: 2px 6px;
+                    background: #222b35;
+                    border: 1px solid #000000;
+                    color: #ffffff;
+                    border-radius: 2px;
+                    box-sizing: border-box;
+                    font-size: 12px;
+                }
+
+                .spt-market-price-input.spt-input-error {
+                    border-color: #ff4c4c;
+                    background: #3a1e1e;
+                }
+
+                .col-receive {
+                    color: #a4d007;
+                    font-weight: 600;
+                }
+
+                .spt-market-modal-footer {
+                    display: flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    gap: 10px;
+                    padding: 12px 18px;
+                    background: #121a24;
+                    border-top: 1px solid rgba(103, 193, 241, 0.2);
+                }
+
+                .spt-market-modal-summary {
+                    margin-right: auto;
+                    font-size: 12px;
+                    color: #8f98a0;
+                }
+
+                .spt-market-progress-modal {
+                    max-width: 480px;
+                }
+
+                .spt-market-progress-status {
+                    font-size: 13px;
+                    color: #c6d4df;
+                    margin-bottom: 12px;
+                    word-break: break-word;
+                }
+
+                .spt-market-progress-track {
+                    width: 100%;
+                    height: 12px;
+                    background: #121a24;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 6px;
+                    overflow: hidden;
+                }
+
+                .spt-market-progress-fill {
+                    height: 100%;
+                    background: linear-gradient(to right, #67c1f1, #417a9b);
+                    transition: width 0.2s ease;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        function isOurElement(node) {
+            if (!node || node.nodeType !== 1) {
+                return false;
+            }
+            return (
+                node.id === 'spt-market-toolbar' ||
+                node.classList?.contains('spt-market-toolbar') ||
+                node.classList?.contains('spt-market-checkbox-container') ||
+                node.classList?.contains('spt-market-row-checkbox') ||
+                node.classList?.contains('spt-market-modal-overlay') ||
+                Boolean(node.closest?.('#spt-market-toolbar, .spt-market-checkbox-container, .spt-market-modal-overlay'))
+            );
+        }
+
+        function attachObserver() {
+            if (observer) {
+                observer.disconnect();
+                observer = null;
+            }
+
+            const target =
+                document.getElementById('tabContentsMyListings') ||
+                document.getElementById('tabContentsMyActiveMarketListingsRows') ||
+                document.getElementById('tabContentsMyActiveMarketListingsTable') ||
+                document.querySelector('.my_listing_section') ||
+                document.body;
+
+            if (!target) {
+                return false;
+            }
+
+            observer = new MutationObserver((records) => {
+                if (busy) {
+                    return;
+                }
+
+                const hasExternalChanges = records.some((record) => {
+                    if (record.target?.closest?.('#spt-market-toolbar, .spt-market-checkbox-container, .spt-market-modal-overlay')) {
+                        return false;
+                    }
+                    return [...record.addedNodes, ...record.removedNodes].some((node) => !isOurElement(node));
+                });
+
+                if (hasExternalChanges) {
+                    scheduleSync();
+                }
+            });
+
+            observer.observe(target, { childList: true, subtree: true });
+            return true;
+        }
+
+        attachObserver();
+
+        let scanCount = 0;
+        scanTimer = setInterval(() => {
+            scanCount += 1;
+            if (!observer) {
+                attachObserver();
+            }
+            syncListings();
+            if (document.getElementById('spt-market-toolbar') || scanCount >= 20) {
+                clearInterval(scanTimer);
+            }
+        }, 300);
     }
 })();

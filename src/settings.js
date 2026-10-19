@@ -14,6 +14,7 @@
         'badgeTools',
         'friendsComments',
         'inventoryTools',
+        'marketTools',
         'storeTools',
     ]);
     const DEFAULTS = Object.freeze({
@@ -22,6 +23,7 @@
         badgeTools: true,
         friendsComments: true,
         inventoryTools: true,
+        marketTools: true,
         storeTools: true,
     });
 

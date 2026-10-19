@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/icon-source.png" width="160" alt="Steam Page Tools icon">
+<img src="assets/icon-source.png" width="160" alt="Steam Page Tools icon">
 </p>
 
 # Steam Page Tools
 
-Steam Page Tools is an unofficial browser extension for Chrome and Firefox that adds cross-page badge tools, paced friends-page comments, inventory valuation and reviewed bulk actions, and bulk Store actions directly to Steam.
+Steam Page Tools is an unofficial browser extension for Chrome and Firefox that adds cross-page badge tools, friends-page comments and group invitations, inventory valuation and reviewed bulk actions, active market listing tools, and bulk Store actions directly to Steam.
 
 It is designed for people who manage large badge libraries, compare card-drop status across many pages, or want to select several Store results before adding them to a cart or wishlist.
 
@@ -14,9 +14,24 @@ It is designed for people who manage large badge libraries, compare card-drop st
 
 ### Settings popup
 
-Click the extension icon to enable or disable Steam Page Tools as a whole or configure each feature area separately: the SteamSets profile link, badge tools, friends comments, inventory tools, and Store bulk actions. All options are enabled by default. Reload an already-open Steam page after changing a setting.
+<img src="readme-assets\settings.png" width="300" alt="Settings">
+
+Click the extension icon to enable or disable Steam Page Tools as a whole or configure each feature area separately: profile tools (SteamSets shortcut and clearing comments on your own profile), badge tools, friends tools, inventory tools, market listings, and Store bulk actions. All options are enabled by default. Reload an already-open Steam page after changing a setting.
+
+### Profile tools
+
+<img src="readme-assets\steamsets.png" width="" alt="SteamSets">
+
+<img src="readme-assets\delete-comments.gif" width="" alt="Delete comments">
+
+On Steam Community profile pages, Profile tools adds a SteamSets shortcut. On your own profile or `allcomments` page, it also adds a compact `Clear all comments` link beside Steam's comment controls. The tool loads the current comment total and asks for confirmation before deleting comments one at a time with an 800-millisecond delay. It prevents a second tab from running simultaneously, can be stopped after the current request, and stops rather than retrying a rejected deletion.
+
+> [!WARNING]
+> Clearing profile comments cannot be undone.
 
 ### Badge pages
+
+<img src="readme-assets\badges.png" width="750" alt="Steam badge">
 
 On every Steam Community profile badge page:
 
@@ -32,24 +47,25 @@ On the signed-in user's own badge pages:
 > [!WARNING]
 > Auto-crafting consumes cards and cannot be undone. The extension asks for confirmation before crafting begins.
 
-<img src="readme-assets\badges.png" alt="Steam badge">
-
 ### Friends page
 
+<img src="readme-assets\buttons.png" width="800" alt="Button">
+<img src="readme-assets/groups.png" width="400" alt="Groups" align="top">
+<img src="readme-assets\comments.png" width="400" alt="Comments">
+
 On the signed-in user's friends page:
-readme
 - Open a Steam-styled dialog, search the friends list, and explicitly choose which profiles should receive the reviewed comment. Recipients start unselected until you pick them; the last selection is restored the next time you open the dialog.
+- Invite selected friends to a group returned by Steam's own group-invite picker. Group invitations are available only on your own friends page and require a separate confirmation.
 - Follow live posted, skipped, and failed counts, progress, and the current profile.
 - Wait three seconds between comments, skip profiles that do not allow comments, wait 20 seconds after other failures before continuing, and retry bounded cooldown responses after a randomized 10-to-15-second delay (or Steam's longer `Retry-After` value).
+- Send group invitations one at a time with a three-second delay, including after ordinary failures; report duplicates, stop on Steam cooldowns, and stop safely after the current request.
 - Stop safely after the current request and prevent duplicate runs across Steam tabs.
 
-The extension asks for confirmation before a run begins. Comments already posted remain on the recipient profiles if a run is stopped.
-
-<img src="readme-assets\buttons.png" alt="Button">
-
-<img src="readme-assets\friends-selector.png" width="500" alt="Friends selector">
+The extension asks for confirmation before a run begins. Comment and invitation recipient selections are saved separately on Steam and restored for their next respective run. Comments already posted remain on the recipient profiles if a run is stopped.
 
 ### Steam inventory
+
+<img src="readme-assets\inventory.png" width="750" alt="Inventory">
 
 On Steam Community inventory pages, the extension:
 
@@ -64,22 +80,34 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 > [!WARNING]
 > Inventory valuations are estimates, not guarantees. Steam's final price, fees, eligibility, restrictions, and any required mobile or email confirmations are authoritative. Selling or converting an item to Gems can be irreversible.
 
-<img src="readme-assets\inventory.png" width="500" alt="Inventory">
+### Steam Community Market
+
+<img src="readme-assets\market.png" width="750" alt="Market">
+<img src="readme-assets\market2.png" width="750" alt="Market2">
+
+On the Steam Community Market home page (`https://steamcommunity.com/market/`):
+
+- Add selection checkboxes to each active listing row and a `Select all shown` control with a live selection counter.
+- Bulk cancel and remove selected listings from the Market with confirmation, polite pacing, 429 rate-limit backoff, and a safe stop control.
+- Bulk edit prices and relist selected items:
+  - Unified price adjustments: set a fixed buyer price or apply a percentage modifier across all selected items.
+  - Individual per-item buyer price inputs with live seller net fee calculations ("You receive").
+  - Sequential cancel-and-relist execution: cancels the active listing, locates the returned asset in the user's inventory, and relists it at the reviewed price with live progress tracking and a stop control.
 
 ### Steam Store search results
 
-- Select games directly from the search results.<>
+<img src="readme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
+<img src="readme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
+<br>
+<br>
+<img src="readme-assets\wishlist2.png" alt="wishlist">
+
+- Select games directly from the search results.
 - Add selected games to the cart in one run.
 - Add selected games to the wishlist after refreshing the account's current wishlist; games already on it are skipped automatically.
 - On a wishlist page, clear the signed-in account's entire wishlist after confirming Steam's displayed item count. The extension uses Steam's native remove controls one at a time, so Steam retains control of authentication and rate limits.
 
 Bundle rows are not supported. When a game has multiple purchase options, the cart action uses Steam's first/default package.
-
-<img src="readme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
-
-<img src="readme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
-
-<img src="readme-assets\wishlist2.png" alt="wishlist">
 
 ## Where it runs
 
@@ -88,6 +116,7 @@ The extension is limited to these Steam page patterns:
 ```text
 https://steamcommunity.com/my/friends*
 https://steamcommunity.com/my/inventory*
+https://steamcommunity.com/market/*
 https://steamcommunity.com/id/*
 https://steamcommunity.com/profiles/*
 https://store.steampowered.com/search*

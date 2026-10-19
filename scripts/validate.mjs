@@ -30,6 +30,7 @@ const executableUrlAllowlist = new Set([
 ]);
 const matches = [
     'https://steamcommunity.com/my/friends*',
+    'https://steamcommunity.com/market/*',
     'https://steamcommunity.com/id/*',
     'https://steamcommunity.com/profiles/*',
     'https://store.steampowered.com/search*',
@@ -49,6 +50,7 @@ const action = {
 const settingsMatches = [
     'https://steamcommunity.com/my/friends*',
     'https://steamcommunity.com/my/inventory*',
+    'https://steamcommunity.com/market/*',
     'https://steamcommunity.com/id/*',
     'https://steamcommunity.com/profiles/*',
     'https://store.steampowered.com/search*',
@@ -169,7 +171,7 @@ async function readJson(relativePath) {
 function validateCommonManifest(manifest) {
     assert.equal(manifest.manifest_version, 3);
     assert.equal(manifest.name, 'Steam Page Tools');
-    assert.equal(manifest.version, '1.3.2');
+    assert.equal(manifest.version, '1.4.0');
     assert.equal(manifest.description, manifestDescription);
     assert.equal(
         [...manifest.description].length <= 132,
@@ -187,7 +189,7 @@ function validateCommonManifest(manifest) {
         [settingsContentScript, contentScript, inventoryContentScript],
         'Unexpected content script declaration'
     );
-    assertDeepEqual(manifest.permissions, ['storage']);
+    assertDeepEqual(manifest.permissions, ['storage', 'tabs']);
     assert.equal('optional_permissions' in manifest, false);
     assert.equal('host_permissions' in manifest, false);
     assert.equal('optional_host_permissions' in manifest, false);
@@ -334,6 +336,18 @@ async function validateContentSource() {
         'settings.profileTools',
         'settings.badgeTools',
         'settings.friendsComments',
+        'initProfileCommentClearer',
+        'spt-clear-profile-comments',
+        '/comment/Profile/render/',
+        '/comment/Profile/delete/',
+        'settings.marketTools',
+        'initMarketTools',
+        'spt-market-toolbar',
+        'spt-market-row-checkbox',
+        'spt-market-select-all-checkbox',
+        'spt-market-edit-price-btn',
+        'spt-market-remove-btn',
+        '/market/removelisting/',
         'settings.storeTools',
         "const STEAM_COMMUNITY_ORIGIN = 'https://steamcommunity.com';",
         "const STEAM_STORE_ORIGIN = 'https://store.steampowered.com';",
@@ -451,6 +465,7 @@ async function validateSettingsAndPopup() {
         'data-setting="badgeTools"',
         'data-setting="friendsComments"',
         'data-setting="inventoryTools"',
+        'data-setting="marketTools"',
         'data-setting="storeTools"',
         'Reload open Steam pages to apply changes.',
     ]) {
@@ -775,7 +790,7 @@ async function validateDistribution(browser) {
     const directory = resolve(repoRoot, `dist/${browser}`);
     const archive = resolve(
         repoRoot,
-        `dist/steam-page-tools-${browser}-v1.3.2.zip`
+        `dist/steam-page-tools-${browser}-v1.4.0.zip`
     );
     const manifestSource = resolve(repoRoot, `manifests/${browser}.json`);
 
@@ -830,11 +845,11 @@ async function validateBuildOutputsWhenPresent() {
         resolve(repoRoot, 'dist/firefox'),
         resolve(
             repoRoot,
-            'dist/steam-page-tools-chrome-v1.3.2.zip'
+            'dist/steam-page-tools-chrome-v1.4.0.zip'
         ),
         resolve(
             repoRoot,
-            'dist/steam-page-tools-firefox-v1.3.2.zip'
+            'dist/steam-page-tools-firefox-v1.4.0.zip'
         ),
     ];
     const present = await Promise.all(expected.map(exists));

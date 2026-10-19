@@ -28,6 +28,7 @@ test('feature settings default to every feature enabled', () => {
             enabled: true,
             friendsComments: true,
             inventoryTools: true,
+            marketTools: true,
             profileTools: true,
             storeTools: true,
         }
@@ -40,6 +41,7 @@ test('feature settings preserve booleans and reject invalid stored values', () =
         enabled: 'false',
         friendsComments: false,
         inventoryTools: 0,
+        marketTools: false,
         profileTools: false,
         storeTools: false,
         unknown: false,
@@ -49,6 +51,7 @@ test('feature settings preserve booleans and reject invalid stored values', () =
     assert.equal(normalized.badgeTools, false);
     assert.equal(normalized.friendsComments, false);
     assert.equal(normalized.inventoryTools, true);
+    assert.equal(normalized.marketTools, false);
     assert.equal(normalized.profileTools, false);
     assert.equal(normalized.storeTools, false);
     assert.equal('unknown' in normalized, false);

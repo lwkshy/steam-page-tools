@@ -50,6 +50,7 @@ On the signed-in user's own badge pages:
 ### Friends page
 
 <img src="readme-assets\buttons.png" width="800" alt="Button">
+
 <img src="readme-assets/groups.png" width="400" alt="Groups" align="top">
 <img src="readme-assets\comments.png" width="400" alt="Comments">
 

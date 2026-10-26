@@ -1,5 +1,5 @@
 <p align="center">
-<img src="assets/icon-source.png" width="160" alt="Steam Page Tools icon">
+<img src="https://i.ibb.co/KcKGWsYh/icon-source.png" width="160" alt="Steam Page Tools icon">
 </p>
 
 # Steam Page Tools
@@ -14,15 +14,15 @@ It is designed for people who manage large badge libraries, compare card-drop st
 
 ### Settings popup
 
-<img src="readme-assets\settings.png" width="300" alt="Settings">
+<img src="https://i.ibb.co/Jj1Kr5dF/settings.png" width="300" alt="Settings">
 
 Click the extension icon to enable or disable Steam Page Tools as a whole or configure each feature area separately: profile tools (SteamSets shortcut and clearing comments on your own profile), badge tools, friends tools, inventory tools, market listings, and Store bulk actions. All options are enabled by default. Reload an already-open Steam page after changing a setting.
 
 ### Profile tools
 
-<img src="readme-assets\steamsets.png" width="" alt="SteamSets">
+<img src="https://i.ibb.co/r2W8DPHD/steamsets.png" width="" alt="SteamSets">
 
-<img src="readme-assets\delete-comments.gif" width="" alt="Delete comments">
+<img src="https://i.ibb.co/zTBXJ2F4/delete-comments.gif" width="" alt="Delete comments">
 
 On Steam Community profile pages, Profile tools adds a SteamSets shortcut. On your own profile or `allcomments` page, it also adds a compact `Clear all comments` link beside Steam's comment controls. The tool loads the current comment total and asks for confirmation before deleting comments one at a time with an 800-millisecond delay. It prevents a second tab from running simultaneously, can be stopped after the current request, and stops rather than retrying a rejected deletion.
 
@@ -31,7 +31,7 @@ On Steam Community profile pages, Profile tools adds a SteamSets shortcut. On yo
 
 ### Badge pages
 
-<img src="readme-assets\badges.png" width="750" alt="Steam badge">
+<img src="https://i.ibb.co/twpQGDfG/badges.png" width="750" alt="Steam badge">
 
 On every Steam Community profile badge page:
 
@@ -49,7 +49,7 @@ On the signed-in user's own badge pages:
 
 ### Friends page
 
-<img src="readme-assets\buttons.png" width="800" alt="Button"><br><img src="readme-assets/groups.png" width="400" alt="Groups" align="top"><img src="readme-assets\comments.png" width="400" alt="Comments">
+<img src="https://i.ibb.co/YBDRNS0n/buttons.png" width="800" alt="Button"><br><img src="https://i.ibb.co/zWkCwBgR/groups.png" width="400" alt="Groups" align="top"><img src="https://i.ibb.co/v67rh6DS/comments.png" width="400" alt="Comments">
 
 On the signed-in user's friends page:
 - Open a Steam-styled dialog, search the friends list, and explicitly choose which profiles should receive the reviewed comment. Recipients start unselected until you pick them; the last selection is restored the next time you open the dialog.
@@ -63,7 +63,7 @@ The extension asks for confirmation before a run begins. Comment and invitation 
 
 ### Steam inventory
 
-<img src="readme-assets\inventory.png" width="750" alt="Inventory">
+<img src="https://i.ibb.co/KpnKhW2W/inventory.png" width="750" alt="Inventory">
 
 On Steam Community inventory pages, the extension:
 
@@ -80,8 +80,8 @@ Bulk selling and conversion to Gems are available only for the signed-in user's 
 
 ### Steam Community Market
 
-<img src="readme-assets\market.png" width="750" alt="Market">
-<img src="readme-assets\market2.png" width="750" alt="Market2">
+<img src="https://i.ibb.co/M5kCQgWQ/market.png" width="750" alt="Market2">
+<img src="https://i.ibb.co/Y7F9cf0V/market2.png" width="750" alt="Market">
 
 On the Steam Community Market home page (`https://steamcommunity.com/market/`):
 
@@ -94,11 +94,11 @@ On the Steam Community Market home page (`https://steamcommunity.com/market/`):
 
 ### Steam Store search results
 
-<img src="readme-assets\checkboxes.png" alt="Selection checkboxes on Steam search results">
-<img src="readme-assets\store-buttons.png" alt="Bulk cart and wishlist action bar">
+<img src="https://i.ibb.co/1gxffvK/checkboxes.png" alt="Selection checkboxes on Steam search results">
+<img src="https://i.ibb.co/gbnFvrTG/store-buttons.png" alt="Bulk cart and wishlist action bar">
 <br>
 <br>
-<img src="readme-assets\wishlist2.png" alt="wishlist">
+<img src="https://i.ibb.co/C526c8fT/wishlist2.png" alt="wishlist">
 
 - Select games directly from the search results.
 - Add selected games to the cart in one run.

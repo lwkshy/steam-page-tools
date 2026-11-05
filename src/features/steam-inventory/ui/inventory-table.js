@@ -23,6 +23,33 @@ inventoryModules.inventoryTable = (() => {
         return true;
     }
 
+    function marketPrice(item) {
+        if (Number.isSafeInteger(item?.price?.lowestSellGrossMinor)) {
+            return item.price.lowestSellGrossMinor;
+        }
+
+        return Number.isSafeInteger(item?.price?.highestBuyGrossMinor)
+            ? item.price.highestBuyGrossMinor
+            : null;
+    }
+
+    function compareByPrice(left, right, direction = 'desc') {
+        const leftPrice = marketPrice(left);
+        const rightPrice = marketPrice(right);
+
+        if (leftPrice === null || rightPrice === null) {
+            if (leftPrice === rightPrice) {
+                return 0;
+            }
+
+            return leftPrice === null ? 1 : -1;
+        }
+
+        return direction === 'asc'
+            ? leftPrice - rightPrice
+            : rightPrice - leftPrice;
+    }
+
     function createSelect(options) {
         const select = element('select');
 
@@ -111,8 +138,10 @@ inventoryModules.inventoryTable = (() => {
             },
         });
         const resetFilters = steamButton('Reset filters', { kind: 'gray' });
+        const sortByPrice = steamButton('Sort by price ↓', { kind: 'gray' });
 
         resetFilters.classList.add('spt-inventory-filter-reset');
+        sortByPrice.classList.add('spt-inventory-filter-sort');
         resetFilters.disabled = true;
         const status = element('div', {
             className: 'spt-inventory-filter-status',
@@ -126,6 +155,7 @@ inventoryModules.inventoryTable = (() => {
         let selectionEnabled = false;
         let loading = false;
         let activeDetailKey = '';
+        let priceSortDirection = '';
 
         controls.append(
             labelControl('Search', search),
@@ -136,7 +166,7 @@ inventoryModules.inventoryTable = (() => {
             labelControl(`Min ${currencyCode || 'price'}`, minPrice),
             labelControl(`Max ${currencyCode || 'price'}`, maxPrice)
         );
-        filterFooter.append(status, resetFilters);
+        filterFooter.append(status, sortByPrice, resetFilters);
         root.append(summary, controls, filterFooter);
 
         function currentSelection() {
@@ -338,6 +368,47 @@ inventoryModules.inventoryTable = (() => {
             return true;
         }
 
+        function sortSteamItems() {
+            if (!priceSortDirection) {
+                return;
+            }
+
+            const groups = new Map();
+
+            for (const holder of document.querySelectorAll(
+                '#inventories .itemHolder'
+            )) {
+                const item = itemsByKey.get(parseHolderKey(holder));
+                const parent = holder.parentElement;
+
+                if (!item || !parent) {
+                    continue;
+                }
+
+                if (!groups.has(parent)) {
+                    groups.set(parent, []);
+                }
+
+                groups.get(parent).push({ holder, item });
+            }
+
+            for (const [parent, entries] of groups) {
+                const sorted = [...entries].sort((left, right) => (
+                    compareByPrice(
+                        left.item,
+                        right.item,
+                        priceSortDirection
+                    )
+                ));
+
+                if (sorted.some((entry, index) => (
+                    entry.holder !== entries[index].holder
+                ))) {
+                    parent.append(...sorted.map((entry) => entry.holder));
+                }
+            }
+        }
+
         function detailMetric(label, value) {
             const metric = element('div', {
                 className: 'spt-inventory-detail-metric',
@@ -475,6 +546,7 @@ inventoryModules.inventoryTable = (() => {
                 minPrice.value ||
                 maxPrice.value
             );
+            sortSteamItems();
             renderItemDetail();
         }
 
@@ -546,6 +618,14 @@ inventoryModules.inventoryTable = (() => {
             syncSteamItems();
         });
 
+        sortByPrice.addEventListener('click', () => {
+            priceSortDirection = priceSortDirection === 'desc' ? 'asc' : 'desc';
+            sortByPrice.textContent = priceSortDirection === 'desc'
+                ? 'Price: high to low'
+                : 'Price: low to high';
+            sortSteamItems();
+        });
+
         document.addEventListener('click', (event) => {
             const holder = event.target.closest(
                 '#inventories .itemHolder'
@@ -596,6 +676,8 @@ inventoryModules.inventoryTable = (() => {
 
     return Object.freeze({
         createTable,
+        compareByPrice,
+        marketPrice,
         parseHolderKey,
         resetFilterControls,
         toggleSelection,

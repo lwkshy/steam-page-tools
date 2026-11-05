@@ -259,6 +259,41 @@ test('reports each completed price snapshot for progressive rendering', async ()
     assert.equal(progress[0].snapshot.lowestSellGrossMinor, 57);
 });
 
+test('prices an asset with a Market identity even when it is currently locked', async () => {
+    const source = await fixture('market-listing.txt', false);
+    let calls = 0;
+    const service = modules.pricingService.createPricingService({
+        api: {
+            async loadMarketListing() {
+                calls += 1;
+                return source;
+            },
+        },
+        country: 'FR',
+        currencyCode: 'EUR',
+        currencyId: 3,
+        feeConfig: exactFees,
+        spacingMs: 0,
+        storage: modules.storage.createStorage(new MemoryStorage()),
+    });
+
+    const result = await service.priceItems([{
+        appId: '730',
+        hasTemporaryHold: true,
+        marketHashName: 'AWP | Arsenic Spill',
+        marketable: false,
+        name: 'AWP | Arsenic Spill',
+        type: 'Mil-Spec Grade Sniper Rifle',
+    }]);
+
+    assert.equal(calls, 1);
+    assert.equal(result.prices.size, 1);
+    assert.equal(
+        result.prices.get('730\u001fAWP | Arsenic Spill').status,
+        'priced'
+    );
+});
+
 test('halts batch pricing after repeated errors', async () => {
     const local = new MemoryStorage();
     const service = modules.pricingService.createPricingService({

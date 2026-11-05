@@ -120,18 +120,59 @@ inventoryModules.inventoryService = (() => {
             : '';
     }
 
+    function isMarketListed(description) {
+        const text = [
+            ...(Array.isArray(description.owner_descriptions)
+                ? description.owner_descriptions
+                : []),
+            ...(Array.isArray(description.descriptions)
+                ? description.descriptions
+                : []),
+        ].map((entry) => String(entry?.value || '')).join(' ');
+
+        return /listed on (?:the )?steam community market/i.test(text);
+    }
+
     function hasMarketValue(item) {
         const isGem = item.name === 'Steam Gems' || item.type === 'Steam Gems';
-        const isApp753 = item.appId === '753';
+        const marketHashName = String(item.marketHashName || '').trim();
+        const isSteamInventory = item.appId === '753';
+        const isCounterStrike = item.appId === '730';
 
-        return !isGem && (
-            item.marketable || (
-                item.marketHashName && (
-                    item.hasTemporaryHold || (
-                        isApp753 && (
-                            item.gem?.eligible || item.type === 'Booster Pack'
-                        )
+        // `marketable` describes whether this individual asset can be listed
+        // right now. It is false for assets that Steam shows as trade
+        // protected or already on the Market, even though their
+        // `market_hash_name` still identifies a priceable Market item.
+        // Valuation must use the latter; sale actions retain their stricter
+        // marketable check.
+        if (isGem) {
+            return false;
+        }
+
+        // Points Shop assets live in Steam's app 753 inventory and can carry
+        // a hash despite having no Market listing. Keep its established
+        // exception for actual marketable items, boosters, and gem-convertible
+        // items. Other games can be valued while an individual asset is
+        // trade-protected or already listed.
+        if (isSteamInventory) {
+            return Boolean(
+                item.marketable || (
+                    marketHashName && (
+                        item.gem?.eligible || item.type === 'Booster Pack'
                     )
+                )
+            );
+        }
+
+        return Boolean(
+            item.marketable || (
+                marketHashName && (
+                    // CS2's current Trade Protected payload often exposes
+                    // only the yellow UI badge, not a hold description.
+                    // Its market hash is still a valid Market identity.
+                    isCounterStrike ||
+                    item.hasTemporaryHold ||
+                    item.isMarketListed
                 )
             )
         );
@@ -160,6 +201,7 @@ inventoryModules.inventoryService = (() => {
                     ...(Array.isArray(description.descriptions) ? description.descriptions : [])
                 ].some(d => d && typeof d.value === 'string' && d.color === 'ff4040' && /\d/.test(d.value))
             ),
+            isMarketListed: isMarketListed(description),
             marketFeeBps: parseDecimalToBasisPoints(
                 description.market_fee,
                 null
@@ -338,6 +380,7 @@ inventoryModules.inventoryService = (() => {
     return Object.freeze({
         createInventoryService,
         hasMarketValue,
+        isMarketListed,
         listContexts,
         mergeInventoryPage,
         normalizeAsset,

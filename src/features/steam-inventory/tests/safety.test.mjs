@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadModules } from './helpers.mjs';
+import { loadModules, plain } from './helpers.mjs';
 
 const modules = await loadModules(['types.js', 'safety.js']);
 
@@ -167,6 +167,33 @@ test('clicking the same Steam tile toggles its selection', async () => {
     assert.equal(selected.has('753:6:42'), false);
 });
 
+test('sorts priced items by listing price and keeps unpriced items last', async () => {
+    const tileModules = await loadModules([
+        'types.js',
+        'ui/dom.js',
+        'ui/inventory-table.js',
+    ], { document: {} });
+    const items = [
+        { price: { lowestSellGrossMinor: 75 } },
+        { price: { status: 'unpriced' } },
+        { price: { highestBuyGrossMinor: 50 } },
+        { price: { lowestSellGrossMinor: 120 } },
+    ];
+
+    assert.deepEqual(
+        items.toSorted((left, right) => (
+            tileModules.inventoryTable.compareByPrice(left, right)
+        )).map((item) => tileModules.inventoryTable.marketPrice(item)),
+        [120, 75, 50, null]
+    );
+    assert.deepEqual(
+        items.toSorted((left, right) => (
+            tileModules.inventoryTable.compareByPrice(left, right, 'asc')
+        )).map((item) => tileModules.inventoryTable.marketPrice(item)),
+        [50, 75, 120, null]
+    );
+});
+
 test('resets every Steam inventory filter without touching selection', async () => {
     const tileModules = await loadModules([
         'types.js',
@@ -213,6 +240,79 @@ test('detects active inventory changes that require selection clearing', async (
         true
     );
     assert.equal(indexModules.index.inventoryKeyChanged('', '440:2'), false);
+});
+
+test('identifies the selected tab from current Steam inventory fields', async () => {
+    const indexModules = await loadModules(['index.js'], {
+        location: { hash: '' },
+        window: {
+            g_ActiveInventory: {
+                m_appid: 730,
+                m_contextid: 2,
+            },
+        },
+    });
+
+    assert.deepEqual(
+        plain(indexModules.index.activeInventory([
+            {
+                appId: '730',
+                appName: 'Counter-Strike 2',
+                contextId: '2',
+                contextName: 'Inventory',
+            },
+        ])),
+        {
+            key: '730:2',
+            label: 'Counter-Strike 2 · Inventory',
+        }
+    );
+});
+
+test('identifies the selected tab from Steam’s highlighted game tab', async () => {
+    const indexModules = await loadModules(['index.js'], {
+        document: {
+            querySelector() {
+                return {
+                    dataset: { appid: '730' },
+                    id: 'game_730',
+                };
+            },
+        },
+        location: { hash: '' },
+        window: {},
+    });
+
+    assert.equal(
+        indexModules.index.activeInventory([
+            { appId: '753', contextId: '6' },
+            { appId: '730', contextId: '2' },
+        ]).key,
+        '730:2'
+    );
+});
+
+test('identifies the selected tab from a visible Steam inventory item', async () => {
+    const indexModules = await loadModules(['index.js'], {
+        document: {
+            querySelector() {
+                return null;
+            },
+            querySelectorAll() {
+                return [{ id: 'item730_2_123456' }];
+            },
+        },
+        location: { hash: '' },
+        window: {},
+    });
+
+    assert.equal(
+        indexModules.index.activeInventory([
+            { appId: '753', contextId: '6' },
+            { appId: '730', contextId: '2' },
+        ]).key,
+        '730:2'
+    );
 });
 
 test('keeps stale inventory refreshes from updating the active tab UI', async () => {

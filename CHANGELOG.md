@@ -4,6 +4,18 @@ All notable changes to the browser-extension edition are documented here.
 
 ## Unreleased
 
+## 1.4.1 - 2026-11-05
+
+### Added
+
+- Price sorting for rendered inventory tiles, with high-to-low and low-to-high order.
+
+### Fixed
+
+- Price trade-protected and already-listed CS2 items.
+- Exclude unmarketable Steam Points Shop assets and Rust Twitch Drops from pricing.
+- Resolve the selected inventory tab from Steam's visible inventory items.
+
 ## 1.4.0 - 2026-10-19
 
 ### Added

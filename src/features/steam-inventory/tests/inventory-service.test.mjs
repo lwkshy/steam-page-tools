@@ -194,7 +194,7 @@ test('lists concrete contexts without duplicating app-wide context zero', () => 
     assert.equal(contexts[0].contextId, '6');
 });
 
-test('prices temporary CS2 holds but excludes permanent unmarketable items', () => {
+test('prices Market identities even while an asset is locked or listed', () => {
     const context = {
         appId: '730',
         appName: 'Counter-Strike 2',
@@ -212,17 +212,17 @@ test('prices temporary CS2 holds but excludes permanent unmarketable items', () 
         marketable: 0,
         name: 'AK-47 | Redline (Field-Tested)',
     }, context, 1234);
-    const permanentCollectible = modules.inventoryService.normalizeAsset({
+    const onMarket = modules.inventoryService.normalizeAsset({
         ...asset,
         assetid: '101',
     }, {
         descriptions: [{
             color: 'ff4040',
-            value: 'Not Tradable, Not Marketable',
+            value: 'This item is currently listed on the Steam Community Market.',
         }],
-        market_hash_name: '5 Year Veteran Coin',
+        market_hash_name: 'AK-47 | Redline (Field-Tested)',
         marketable: 0,
-        name: '5 Year Veteran Coin',
+        name: 'AK-47 | Redline (Field-Tested)',
     }, context, 1234);
     const dateOnlyHold = modules.inventoryService.normalizeAsset({
         ...asset,
@@ -239,11 +239,39 @@ test('prices temporary CS2 holds but excludes permanent unmarketable items', () 
 
     assert.equal(tradeProtected.hasTemporaryHold, true);
     assert.equal(modules.inventoryService.hasMarketValue(tradeProtected), true);
+    assert.equal(modules.inventoryService.hasMarketValue({
+        appId: '730',
+        marketHashName: 'AWP | Arsenic Spill',
+        marketable: false,
+        name: 'AWP | Arsenic Spill',
+        type: 'Mil-Spec Grade Sniper Rifle',
+    }), true);
     assert.equal(dateOnlyHold.hasTemporaryHold, true);
     assert.equal(modules.inventoryService.hasMarketValue(dateOnlyHold), true);
-    assert.equal(permanentCollectible.hasTemporaryHold, false);
-    assert.equal(
-        modules.inventoryService.hasMarketValue(permanentCollectible),
-        false
-    );
+    assert.equal(onMarket.hasTemporaryHold, false);
+    assert.equal(onMarket.isMarketListed, true);
+    assert.equal(modules.inventoryService.hasMarketValue(onMarket), true);
+    assert.equal(modules.inventoryService.hasMarketValue({
+        appId: '753',
+        gem: { eligible: false },
+        marketHashName: 'Points Shop Showcase',
+        marketable: false,
+        name: 'Points Shop Showcase',
+        type: 'Profile Showcase',
+    }), false);
+    assert.equal(modules.inventoryService.hasMarketValue({
+        appId: '252490',
+        hasTemporaryHold: false,
+        isMarketListed: false,
+        marketHashName: 'Rust Twitch Drop',
+        marketable: false,
+        name: 'Rust Twitch Drop',
+        type: 'Twitch Drop',
+    }), false);
+    assert.equal(modules.inventoryService.hasMarketValue({
+        marketHashName: '',
+        marketable: false,
+        name: 'Unmarketable item',
+        type: 'Background',
+    }), false);
 });

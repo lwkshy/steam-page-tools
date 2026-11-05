@@ -80,12 +80,64 @@ inventoryModules.index = (() => {
 
     function activeInventory(contexts) {
         const hash = location.hash.match(/^#(\d+)_(\d+)/);
+        const activeInventory = window.g_ActiveInventory || {};
+        const selectedTab = typeof document === 'undefined'
+            ? null
+            : document.querySelector([
+                '#games_list .games_list_tab.active',
+                '#games_list .games_list_tab.selected',
+                '.games_list_tab.active',
+                '.games_list_tab.selected',
+                '.inventory_tab.active',
+                '.inventory_tab.selected',
+            ].join(','));
+        const tabId = String(selectedTab?.id || '');
+        const tabMatch = tabId.match(
+            /(?:game|inventory)_(\d+)(?:_(\d+))?$/i
+        );
+        const tabAppId = selectedTab?.dataset?.appid ||
+            selectedTab?.getAttribute?.('data-appid') ||
+            tabMatch?.[1] || '';
+        const tabContextId = selectedTab?.dataset?.contextid ||
+            selectedTab?.getAttribute?.('data-contextid') ||
+            tabMatch?.[2] || '';
+        const activeItem = typeof document === 'undefined'
+            ? null
+            : document.querySelector('#inventories .item.activeInfo[id]');
+        const visibleItem = activeItem || (typeof document === 'undefined'
+            ? null
+            : [...(document.querySelectorAll?.(
+                '#inventories .item[id]:not(.pendingItem)'
+            ) || [])].find((item) => (
+                typeof item.getClientRects !== 'function' ||
+                item.getClientRects().length > 0
+            )));
+        const itemMatch = String(visibleItem?.id || '').match(
+            /^(?:item_?)?(\d+)_(\d+)_(\d+)$/
+        );
         const appId = String(
-            hash?.[1] || window.g_ActiveInventory?.appid || ''
+            hash?.[1] ||
+            activeInventory.appid ||
+            activeInventory.m_appid ||
+            itemMatch?.[1] ||
+            tabAppId ||
+            ''
         );
-        const contextId = String(
-            hash?.[2] || window.g_ActiveInventory?.contextid || ''
+        let contextId = String(
+            hash?.[2] ||
+            activeInventory.contextid ||
+            activeInventory.m_contextid ||
+            itemMatch?.[2] ||
+            tabContextId ||
+            ''
         );
+        const appContexts = contexts.filter((candidate) => (
+            candidate.appId === appId
+        ));
+
+        if (!contextId && appContexts.length === 1) {
+            contextId = appContexts[0].contextId;
+        }
         const context = contexts.find((candidate) => (
             candidate.appId === appId && candidate.contextId === contextId
         ));
@@ -315,7 +367,7 @@ inventoryModules.index = (() => {
                 price: prices.get(
                     `${item.appId}\u001f${item.marketHashName}`
                 ) || (
-                    item.marketable
+                    inventoryModules.inventoryService.hasMarketValue(item)
                         ? { status: 'unpriced' }
                         : {
                             source: 'Not marketable',
@@ -411,7 +463,16 @@ inventoryModules.index = (() => {
             try {
                 const active = activeInventory(contexts);
                 const activeContext = contexts.find((c) => active.key === `${c.appId}:${c.contextId}`);
-                const targetContexts = activeContext ? [activeContext] : contexts;
+
+                if (!activeContext) {
+                    ui.setStatus(
+                        'Could not identify the selected Steam inventory tab. Select a tab and refresh.',
+                        { error: true }
+                    );
+                    return;
+                }
+
+                const targetContexts = [activeContext];
 
                 const result = await inventoryService.loadAll(
                     pageContext.ownerSteamId,

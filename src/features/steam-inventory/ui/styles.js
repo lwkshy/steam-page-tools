@@ -230,6 +230,12 @@ inventoryModules.inventoryStyles = (() => {
                 margin-top: 6px;
             }
 
+            .spt-inventory-filter-actions {
+                display: flex;
+                flex: 0 0 auto;
+                gap: 8px;
+            }
+
             .spt-inventory-filter-reset {
                 min-height: 27px;
                 flex: 0 0 auto;

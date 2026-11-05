@@ -139,6 +139,7 @@ inventoryModules.inventoryTable = (() => {
         });
         const resetFilters = steamButton('Reset filters', { kind: 'gray' });
         const sortByPrice = steamButton('Sort by price ↓', { kind: 'gray' });
+        const sortByPriceLabel = sortByPrice.firstElementChild;
 
         resetFilters.classList.add('spt-inventory-filter-reset');
         sortByPrice.classList.add('spt-inventory-filter-sort');
@@ -150,12 +151,17 @@ inventoryModules.inventoryTable = (() => {
         const filterFooter = element('div', {
             className: 'spt-inventory-filter-footer',
         });
+        const filterActions = element('div', {
+            className: 'spt-inventory-filter-actions',
+        });
         const itemsByKey = new Map();
         const selected = new Set();
         let selectionEnabled = false;
         let loading = false;
         let activeDetailKey = '';
         let priceSortDirection = '';
+        let originalOrder = new WeakMap();
+        let nextOriginalOrder = 0;
 
         controls.append(
             labelControl('Search', search),
@@ -166,7 +172,8 @@ inventoryModules.inventoryTable = (() => {
             labelControl(`Min ${currencyCode || 'price'}`, minPrice),
             labelControl(`Max ${currencyCode || 'price'}`, maxPrice)
         );
-        filterFooter.append(status, sortByPrice, resetFilters);
+        filterActions.append(sortByPrice, resetFilters);
+        filterFooter.append(status, filterActions);
         root.append(summary, controls, filterFooter);
 
         function currentSelection() {
@@ -369,10 +376,6 @@ inventoryModules.inventoryTable = (() => {
         }
 
         function sortSteamItems() {
-            if (!priceSortDirection) {
-                return;
-            }
-
             const groups = new Map();
 
             for (const holder of document.querySelectorAll(
@@ -385,6 +388,11 @@ inventoryModules.inventoryTable = (() => {
                     continue;
                 }
 
+                if (!originalOrder.has(holder)) {
+                    originalOrder.set(holder, nextOriginalOrder);
+                    nextOriginalOrder += 1;
+                }
+
                 if (!groups.has(parent)) {
                     groups.set(parent, []);
                 }
@@ -394,11 +402,14 @@ inventoryModules.inventoryTable = (() => {
 
             for (const [parent, entries] of groups) {
                 const sorted = [...entries].sort((left, right) => (
-                    compareByPrice(
-                        left.item,
-                        right.item,
-                        priceSortDirection
-                    )
+                    priceSortDirection
+                        ? compareByPrice(
+                            left.item,
+                            right.item,
+                            priceSortDirection
+                        )
+                        : originalOrder.get(left.holder) -
+                            originalOrder.get(right.holder)
                 ));
 
                 if (sorted.some((entry, index) => (
@@ -544,7 +555,8 @@ inventoryModules.inventoryTable = (() => {
                 gems.value !== 'all' ||
                 pricing.value !== 'all' ||
                 minPrice.value ||
-                maxPrice.value
+                maxPrice.value ||
+                priceSortDirection
             );
             sortSteamItems();
             renderItemDetail();
@@ -552,6 +564,8 @@ inventoryModules.inventoryTable = (() => {
 
         function setItems(items) {
             itemsByKey.clear();
+            originalOrder = new WeakMap();
+            nextOriginalOrder = 0;
 
             for (const item of items) {
                 itemsByKey.set(makeAssetKey(item), item);
@@ -615,14 +629,16 @@ inventoryModules.inventoryTable = (() => {
                 pricing,
                 search,
             });
+            priceSortDirection = '';
+            sortByPriceLabel.textContent = 'Sort by price ↓';
             syncSteamItems();
         });
 
         sortByPrice.addEventListener('click', () => {
             priceSortDirection = priceSortDirection === 'desc' ? 'asc' : 'desc';
-            sortByPrice.textContent = priceSortDirection === 'desc'
-                ? 'Price: high to low'
-                : 'Price: low to high';
+            sortByPriceLabel.textContent = priceSortDirection === 'desc'
+                ? 'Sort by price ↓'
+                : 'Sort by price ↑';
             sortSteamItems();
         });
 

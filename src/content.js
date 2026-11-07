@@ -2561,7 +2561,6 @@
 
         // Prevent runaway scans if Steam returns malformed pagination.
         const MAX_PAGES = 200;
-        const MAX_CRAFT_PASSES = 10;
         const MAX_CRAFT_BATCHES = 500;
         const CRAFT_LOCK_KEY = 'spt-badge-auto-craft-lock';
         const CRAFT_LOCK_TTL_MS = 60 * 1000;
@@ -4081,8 +4080,7 @@
                     `Found ${count} ready badge type(s). ` +
                     'Craft every complete card set available for them? ' +
                     'Steam Page Tools will use the 5x option when Steam ' +
-                    'offers it and will also craft badges made ready by ' +
-                    'crafting rewards. This consumes cards and cannot be undone.';
+                    'offers it. This consumes cards and cannot be undone.';
 
                 if (typeof window.ShowConfirmDialog === 'function') {
                     try {
@@ -4416,79 +4414,37 @@
                         }
                     }, 20000);
 
-                    let targets = initialScan.targets;
+                    const targets = initialScan.targets;
 
                     for (
-                        let pass = 1;
-                        pass <= MAX_CRAFT_PASSES && targets.length;
-                        pass += 1
+                        let index = 0;
+                        index < targets.length;
+                        index += 1
                     ) {
-                        const attemptsBeforePass = summary.attempts;
-
-                        for (
-                            let index = 0;
-                            index < targets.length;
-                            index += 1
-                        ) {
-                            if (
-                                stopCrafting ||
-                                summary.batches >= MAX_CRAFT_BATCHES
-                            ) {
-                                break;
-                            }
-
-                            const target = targets[index];
-
-                            if (summary.failed.has(target.key)) {
-                                continue;
-                            }
-
-                            await craftEveryLevel(
-                                target,
-                                sessionid,
-                                summary,
-                                index + 1,
-                                targets.length
-                            );
-                        }
-
                         if (
                             stopCrafting ||
                             summary.batches >= MAX_CRAFT_BATCHES
                         ) {
-                            summary.safetyLimit =
-                                summary.batches >= MAX_CRAFT_BATCHES;
                             break;
                         }
 
-                        // A pass without mutation attempts indicates stale
-                        // rows; stop instead of rescanning indefinitely.
-                        if (summary.attempts === attemptsBeforePass) {
-                            break;
+                        const target = targets[index];
+
+                        if (summary.failed.has(target.key)) {
+                            continue;
                         }
 
-                        setCraftStatus(
-                            'Rescanning for badges made ready by rewards...'
-                        );
-
-                        const nextScan = await collectCraftTargets(true);
-
-                        if (nextScan.cancelled || stopCrafting) {
-                            break;
-                        }
-
-                        targets = nextScan.targets
-                            .filter((target) => (
-                                !summary.failed.has(target.key)
-                            ));
-
-                        if (
-                            pass === MAX_CRAFT_PASSES &&
+                        await craftEveryLevel(
+                            target,
+                            sessionid,
+                            summary,
+                            index + 1,
                             targets.length
-                        ) {
-                            summary.safetyLimit = true;
-                        }
+                        );
                     }
+
+                    summary.safetyLimit =
+                        summary.batches >= MAX_CRAFT_BATCHES;
                 } catch (err) {
                     runError = err;
                     console.error(
@@ -4667,20 +4623,26 @@
             updateBar();
         }
 
+        let observedResultsContainer = null;
+        let resultsRowsObserver = null;
+
+        function findResultsContainer() {
+            return document.querySelector('#search_resultsRows') ||
+                document.querySelector('.search_results_rows');
+        }
+
+        function scanResultsContainer(container) {
+            container.querySelectorAll('.search_result_row').forEach(processRow);
+        }
+
         let scanAttempts = 0;
 
         const scanInterval = setInterval(() => {
             scanAttempts += 1;
-
-            const container =
-                document.querySelector('#search_resultsRows') ||
-                document.querySelector('.search_results_rows');
+            const container = findResultsContainer();
 
             if (container) {
-                container
-                    .querySelectorAll('.search_result_row')
-                    .forEach(processRow);
-
+                scanResultsContainer(container);
                 observeResults(container);
 
                 clearInterval(scanInterval);
@@ -4691,7 +4653,13 @@
 
         // Observe infinite-scroll results as well as the initial result set.
         function observeResults(container) {
-            const observer = new MutationObserver((mutations) => {
+            if (container === observedResultsContainer) {
+                return;
+            }
+
+            resultsRowsObserver?.disconnect();
+            observedResultsContainer = container;
+            resultsRowsObserver = new MutationObserver((mutations) => {
                 for (const mutation of mutations) {
                     mutation.addedNodes.forEach((node) => {
                         if (node.nodeType !== 1) {
@@ -4709,8 +4677,23 @@
                 }
             });
 
-            observer.observe(container, { childList: true, subtree: true });
+            resultsRowsObserver.observe(container, {
+                childList: true,
+                subtree: true,
+            });
         }
+
+        // Steam replaces the entire results container for some filter changes.
+        // Keep the row observer attached to the current container so selection
+        // controls survive without requiring a page reload.
+        new MutationObserver(() => {
+            const container = findResultsContainer();
+
+            if (container && container !== observedResultsContainer) {
+                scanResultsContainer(container);
+                observeResults(container);
+            }
+        }).observe(document.body, { childList: true, subtree: true });
 
         function extractAppId(row) {
             const raw = row.getAttribute('data-ds-appid');
@@ -4732,7 +4715,10 @@
         }
 
         function processRow(row) {
-            if (row.dataset.sptProcessed) {
+            if (
+                row.dataset.sptProcessed &&
+                row.querySelector('.spt-cart-checkbox')
+            ) {
                 return;
             }
 

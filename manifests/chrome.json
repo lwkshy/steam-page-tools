@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam Page Tools",
-  "version": "1.4.1",
+  "version": "1.4.3",
   "description": "Unofficial Steam profile, badge, friends, inventory valuation, and bulk Store tools.",
   "homepage_url": "https://github.com/ilaczr/steam-page-tools",
   "minimum_chrome_version": "111",

@@ -4,6 +4,20 @@ All notable changes to the browser-extension edition are documented here.
 
 ## Unreleased
 
+## 1.4.3 - 2026-11-07
+
+### Fixed
+
+- Restore Store bulk-action selection controls after Steam refreshes search
+  results for a filter change.
+
+## 1.4.2 - 2026-11-06
+
+### Changed
+
+- Auto Craft All Badges completes after its initial badge scan instead of
+  rescanning every badges page for reward-created sets.
+
 ## 1.4.1 - 2026-11-05
 
 ### Added
